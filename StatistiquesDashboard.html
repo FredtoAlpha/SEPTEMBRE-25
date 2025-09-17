@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <title>Statistiques Classes Phase 5</title>
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <style>
+    body {
+      font-family: 'Roboto', Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+      color: #333;
+    }
+    h1 {
+      font-size: 22px;
+      color: #1a73e8;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .dashboard-container { 
+      display: flex; 
+      flex-direction: column; 
+      height: calc(100vh - 80px);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .chart-container { 
+      display: flex; 
+      flex-direction: column;
+      gap: 20px; 
+      flex: 1;
+      margin-top: 20px;
+    }
+    .chart-box {
+      width: 100%;
+      min-width: 300px; 
+      border: 1px solid #e0e0e0; 
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+      padding: 15px; 
+      margin-bottom: 20px;
+    }
+    .chart-title { 
+      font-size: 18px; 
+      font-weight: 500; 
+      margin-bottom: 15px; 
+      color: #1a73e8; 
+      text-align: center;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    .chart {
+      width: 100%;
+      height: 350px;
+    }
+    .controls { 
+      display: flex; 
+      justify-content: center; 
+      gap: 10px; 
+      margin: 15px 0;
+    }
+    .criteria-controls { 
+      display: flex; 
+      justify-content: center; 
+      gap: 10px; 
+      margin: 15px 0 20px;
+    }
+    .criteria-label { 
+      margin-right: 10px; 
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+    }
+    .btn {
+      background-color: #f1f3f4; 
+      border: none; 
+      padding: 10px 16px; 
+      border-radius: 4px; 
+      cursor: pointer;
+      font-family: inherit; 
+      font-weight: 500; 
+      transition: background-color 0.3s;
+    }
+    .btn:hover { 
+      background-color: #e8eaed;
+    }
+    .btn-active { 
+      background-color: #1a73e8; 
+      color: white;
+    }
+    .btn-active:hover { 
+      background-color: #1967d2;
+    }
+    .level-selector { 
+      margin-bottom: 15px; 
+      text-align: center;
+    }
+    .level-selector select { 
+      padding: 8px 12px; 
+      border-radius: 4px; 
+      border: 1px solid #ccc; 
+      font-family: inherit; 
+      margin-left: 8px;
+    }
+    @keyframes spin { 
+      0% { transform: rotate(0deg);} 
+      100% { transform: rotate(360deg);} 
+    }
+    .status-box { 
+      margin: 10px auto; 
+      padding: 10px; 
+      border-radius: 4px; 
+      text-align: center;
+      max-width: 500px;
+      display: none; 
+    }
+    .status-box.success { 
+      display: block; 
+      background-color: #d4edda; 
+      color: #155724; 
+      border: 1px solid #c3e6cb; 
+    }
+    .status-box.error { 
+      display: block; 
+      background-color: #f8d7da; 
+      color: #721c24; 
+      border: 1px solid #f5c6cb; 
+    }
+    .status-box.info { 
+      display: block; 
+      background-color: #cce5ff; 
+      color: #004085; 
+      border: 1px solid #b8daff; 
+    }
+    .loading-indicator {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 20px 0;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    .loading-text {
+      margin-top: 10px;
+      font-weight: 500;
+      color: #666;
+    }
+    .legend-container {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 10px;
+      gap: 15px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      margin-right: 5px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-container">
+    <h1 id="dashboard-title">Statistiques Classes Phase 5</h1>
+    
+    <div id="statusBox" class="status-box"></div>
+    
+    <div id="loadingIndicator" class="loading-indicator">
+      <div class="spinner"></div>
+      <div id="loadingText" class="loading-text">Chargement des données...</div>
+    </div>
+
+    <div class="controls">
+      <button id="btn-sources" class="btn">Classes Sources</button>
+      <button id="btn-test" class="btn">Classes TEST</button>
+      <button id="btn-def" class="btn">Classes DEF</button>
+      <button id="btn-compare" class="btn">Comparer TEST/DEF</button>
+    </div>
+    
+    <div class="criteria-controls" id="criteria-controls">
+      <span class="criteria-label">Critère:</span>
+      <button id="btn-com" class="btn">COM</button>
+      <button id="btn-tra" class="btn">TRA</button>
+      <button id="btn-part" class="btn">PART</button>
+      <button id="btn-abs" class="btn">ABS</button>
+    </div>
+    
+    <div id="level-selector" class="level-selector" style="display: none;">
+      <label for="select-level">Sélectionner un niveau: </label>
+      <select id="select-level"></select>
+    </div>
+
+    <div class="chart-container">
+      <div id="barChart-container" class="chart-box">
+        <div class="chart-title" id="barChart-title">Scores par classe</div>
+        <div id="barChart" class="chart"></div>
+      </div>
+      
+      <div id="parityChart-container" class="chart-box">
+        <div class="chart-title">Répartition F/G par classe</div>
+        <div id="parityChart" class="chart"></div>
+      </div>
+      
+      <div id="detailedChart-container" class="chart-box">
+        <div class="chart-title">Distribution détaillée</div>
+        <div class="legend-container">
+          <div class="legend-item">
+            <div class="legend-color" style="background-color: #1a73e8;"></div>
+            <span>Comportement</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background-color: #1a73e8;"></div>
+            <span>Travail</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background-color: #1a73e8;"></div>
+            <span>Participation</span>
+          </div>
+        </div>
+        <div id="detailedChart" class="chart"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    google.charts.load('current', {'packages':['corechart', 'bar']});
+    google.charts.setOnLoadCallback(initialize);
+
+    let currentData = null;
+    let currentView = 'def';
+    let currentCriteria = 'com';
+    let selectedLevel = null;
+    let availableLevels = [];
+    let configSettings = null;
+    
+    // Configuration des couleurs
+    const colors = {
+      scores: ['#e53935', '#ffb300', '#8bc34a', '#2e7d32'], // Rouge, Orange, Vert clair, Vert foncé
+      filles: '#F28EA8', // Rose
+      garcons: '#4F81BD' // Bleu
+    };
+
+    function initialize() {
+      setButtonListeners();
+      showLoading(true, "Chargement des données...");
+      loadData();
+    }
+
+    function setButtonListeners() {
+      document.getElementById('btn-sources').addEventListener('click', () => changeView('sources'));
+      document.getElementById('btn-test').addEventListener('click', () => changeView('test'));
+      document.getElementById('btn-def').addEventListener('click', () => changeView('def'));
+      document.getElementById('btn-compare').addEventListener('click', () => changeView('compare'));
+      document.getElementById('btn-com').addEventListener('click', () => changeCriteria('com'));
+      document.getElementById('btn-tra').addEventListener('click', () => changeCriteria('tra'));
+      document.getElementById('btn-part').addEventListener('click', () => changeCriteria('part'));
+      document.getElementById('btn-abs').addEventListener('click', () => changeCriteria('abs'));
+      document.getElementById('select-level').addEventListener('change', (e) => {
+        selectedLevel = e.target.value;
+        updateCharts();
+      });
+    }
+
+    function loadData() {
+      document.getElementById('barChart').innerHTML =
+        '<div style="text-align:center; padding:40px;">Chargement des données...</div>';
+      google.script.run
+        .withSuccessHandler(handleDataLoad)
+        .withFailureHandler(handleError)
+        .getStatsData();
+    }
+
+    function handleDataLoad(response) {
+      showLoading(false);
+      
+      if (response.error) {
+        showStatus("error", "Erreur: " + response.error);
+        return;
+      }
+      
+      currentData = response;
+      
+      if (response.params) {
+        currentView = response.params.viewType || 'def';
+        if (response.params.title) {
+          document.getElementById('dashboard-title').textContent = response.params.title;
+        }
+      }
+      
+      updateButtonState();
+      extractLevels();
+      updateCharts();
+    }
+
+    function handleError(error) {
+      showLoading(false);
+      console.error("Erreur:", error);
+      showStatus("error", "Une erreur est survenue: " + (error.message || error));
+    }
+
+    function showStatus(type, message) {
+      const statusBox = document.getElementById('statusBox');
+      statusBox.textContent = message;
+      statusBox.className = "status-box " + type;
+      
+      // Masquer après 5 secondes si c'est un succès
+      if (type === "success") {
+        setTimeout(() => {
+          statusBox.className = "status-box";
+        }, 5000);
+      }
+    }
+
+    function showLoading(isLoading, message = "Traitement en cours...") {
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      const loadingText = document.getElementById('loadingText');
+      
+      if (isLoading) {
+        loadingIndicator.style.display = 'flex';
+        loadingText.textContent = message;
+      } else {
+        loadingIndicator.style.display = 'none';
+      }
+    }
+
+   function changeView(view){
+    if(currentView === view) return;
+
+    showLoading(true,'Chargement…');
+    currentView = view;               // on mémorise tout de suite
+    updateButtonState();
+
+    const fn = {
+      sources :'setViewSources',
+      test    :'setViewTest',
+      def     :'setViewDef',
+      compare :'setViewCompare'
+    }[view];
+
+    google.script.run
+      .withSuccessHandler(handleDataLoad)   // <-- on reçoit directement les données
+      .withFailureHandler(handleError)
+      [fn]();                               // <-- un seul aller-retour serveur
+  }
+
+    function changeCriteria(criteria) {
+      currentCriteria = criteria;
+      updateButtonState();
+      updateCharts();
+    }
+
+    function updateButtonState() {
+      ['sources', 'test', 'def', 'compare'].forEach(view => {
+        const btn = document.getElementById(`btn-${view}`);
+        if (view === currentView) {
+          btn.classList.add('btn-active');
+        } else {
+          btn.classList.remove('btn-active');
+        }
+      });
+      
+      ['com', 'tra', 'part', 'abs'].forEach(criteria => {
+        const btn = document.getElementById(`btn-${criteria}`);
+        if (criteria === currentCriteria) {
+          btn.classList.add('btn-active');
+        } else {
+          btn.classList.remove('btn-active');
+        }
+      });
+    }
+
+    function extractLevels() {
+      availableLevels = [];
+      const data = getDataByView();
+      if (!data || !Array.isArray(data)) {
+        console.log('Aucune donnée disponible pour extraction des niveaux');
+        return;
+      }
+      
+      // Pattern amélioré pour détecter les niveaux (3° à 6°)
+      const levelRegex = /^([3-6])[°º]/;
+      const levelsSet = new Set();
+      
+      console.log('Classes trouvées pour extraction des niveaux:', data.map(item => item.class));
+      
+      data.forEach(item => {
+        const match = item.class.match(levelRegex);
+        if (match && match[1]) {
+          levelsSet.add(match[1] + '°');
+          console.log(`Niveau détecté: ${match[1]}° depuis classe ${item.class}`);
+        } else {
+          console.log(`Classe non reconnue pour niveau: ${item.class}`);
+        }
+      });
+      
+      availableLevels = Array.from(levelsSet).sort();
+      console.log('Niveaux disponibles:', availableLevels);
+      
+      if (availableLevels.length > 0 && !selectedLevel) {
+        selectedLevel = availableLevels[0];
+        console.log('Niveau sélectionné par défaut:', selectedLevel);
+      }
+      
+      updateLevelSelector();
+    }
+
+    function updateLevelSelector() {
+      const selector = document.getElementById('level-selector');
+      const select = document.getElementById('select-level');
+      
+      console.log(`Mise à jour sélecteur: ${availableLevels.length} niveaux disponibles`);
+      
+      if (availableLevels.length <= 1) {
+        selector.style.display = 'none';
+        console.log('Sélecteur de niveau masqué (un seul niveau ou aucun)');
+        return;
+      }
+      
+      selector.style.display = 'block';
+      select.innerHTML = '';
+      
+      const optionAll = document.createElement('option');
+      optionAll.value = 'all';
+      optionAll.textContent = 'Tous les niveaux';
+      select.appendChild(optionAll);
+      
+      availableLevels.forEach(level => {
+        const option = document.createElement('option');
+        option.value = level;
+        option.textContent = `Niveau ${level}`;
+        select.appendChild(option);
+        console.log(`Option ajoutée: ${level}`);
+      });
+      
+      select.value = selectedLevel || 'all';
+      console.log('Sélecteur de niveau affiché avec valeur:', select.value);
+    }
+
+    function getDataByView() {
+      if (!currentData) return null;
+      
+      switch (currentView) {
+        case 'sources':
+        case 'test':
+        case 'def':
+          return currentData.data;
+        case 'compare':
+          return {
+            test: currentData.dataTest,
+            def: currentData.dataDef
+          };
+        default:
+          return currentData.data;
+      }
+    }
+
+     function filterDataByLevel(data) {
+      if (!data || !selectedLevel || selectedLevel === 'all') {
+        console.log('Pas de filtrage par niveau (données nulles, niveau non sélectionné, ou "all")');
+        return data;
+      }
+      
+      console.log(`Filtrage des données par niveau: ${selectedLevel}`);
+      
+      if (Array.isArray(data)) {
+        const filtered = data.filter(item => {
+          const matches = item.class.startsWith(selectedLevel) || 
+                         item.class.startsWith(selectedLevel.replace('°', ''));
+          if (matches) {
+            console.log(`Classe conservée: ${item.class}`);
+          }
+          return matches;
+        });
+        console.log(`Filtrage terminé: ${filtered.length}/${data.length} classes conservées`);
+        return filtered;
+      } else if (currentView === 'compare' && data.test && data.def) {
+        const filteredTest = data.test.filter(item => 
+          item.class.startsWith(selectedLevel) || 
+          item.class.startsWith(selectedLevel.replace('°', ''))
+        );
+        const filteredDef = data.def.filter(item => 
+          item.class.startsWith(selectedLevel) || 
+          item.class.startsWith(selectedLevel.replace('°', ''))
+        );
+        console.log(`Comparaison filtrée: ${filteredTest.length} TEST, ${filteredDef.length} DEF`);
+        return {
+          test: filteredTest,
+          def: filteredDef
+        };
+      }
+      
+      return data;
+    }
+
+    function updateCharts() {
+      const data = getDataByView();
+      if (!data) return;
+      
+      const filteredData = filterDataByLevel(data);
+      
+      if (currentView === 'compare') {
+        drawCompareChart(filteredData);
+        drawParityCompareChart(filteredData);
+        document.getElementById('detailedChart-container').style.display = 'none';
+      } else {
+        drawBarChart(filteredData);
+        drawParityChart(filteredData);
+        drawDetailedChart(filteredData);
+        document.getElementById('detailedChart-container').style.display = 'block';
+      }
+    }
+
+    function drawBarChart(data) {
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        document.getElementById('barChart').innerHTML =
+          '<div style="text-align:center; padding:20px;">Aucune donnée à afficher</div>';
+        return;
+      }
+      
+      const chartData = new google.visualization.DataTable();
+      chartData.addColumn('string', 'Classe');
+      chartData.addColumn('number', 'Score 1');
+      chartData.addColumn('number', 'Score 2');
+      chartData.addColumn('number', 'Score 3');
+      chartData.addColumn('number', 'Score 4');
+      
+      data.forEach(item => {
+        const scores = item.scores[currentCriteria] || [0, 0, 0, 0];
+        chartData.addRow([
+          item.class,
+          scores[0],
+          scores[1],
+          scores[2],
+          scores[3]
+        ]);
+      });
+      
+      const options = {
+        title: `Répartition des scores ${currentCriteria.toUpperCase()} par classe`,
+        isStacked: true,
+        hAxis: {
+          title: 'Classe',
+          titleTextStyle: { color: '#333' }
+        },
+        vAxis: {
+          minValue: 0,
+          title: 'Effectif',
+          titleTextStyle: { color: '#333' }
+        },
+        legend: { position: 'top', maxLines: 3 },
+        bar: { groupWidth: '75%' },
+        colors: colors.scores
+      };
+      
+      const chart = new google.visualization.ColumnChart(document.getElementById('barChart'));
+      chart.draw(chartData, options);
+      document.getElementById('barChart-title').textContent = `Scores ${currentCriteria.toUpperCase()} par classe`;
+    }
+
+    function drawParityChart(data) {
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        document.getElementById('parityChart').innerHTML =
+          '<div style="text-align:center; padding:20px;">Aucune donnée à afficher</div>';
+        return;
+      }
+      
+      const chartData = new google.visualization.DataTable();
+      chartData.addColumn('string', 'Classe');
+      chartData.addColumn('number', 'Filles');
+      chartData.addColumn('number', 'Garçons');
+      
+      data.forEach(item => {
+        chartData.addRow([
+          item.class,
+          item.female,
+          item.male
+        ]);
+      });
+      
+      const options = {
+        title: 'Répartition F/G par classe',
+        isStacked: false,
+        legend: { position: 'top' },
+        colors: [colors.filles, colors.garcons],
+        bar: { groupWidth: '70%' },
+        hAxis: {
+          title: 'Classe',
+          titleTextStyle: { color: '#333' }
+        },
+        vAxis: {
+          title: 'Effectif',
+          titleTextStyle: { color: '#333' },
+          minValue: 0
+        }
+      };
+      
+      const chart = new google.visualization.ColumnChart(document.getElementById('parityChart'));
+      chart.draw(chartData, options);
+    }
+
+    function drawDetailedChart(data) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    document.getElementById('detailedChart').innerHTML = 
+      '<div style="text-align:center; padding:20px;">Aucune donnée à afficher</div>';
+    return;
+  }
+  
+  // Commencez par vider le conteneur (important)
+  document.getElementById('detailedChart').innerHTML = '';
+  
+  const chartData = new google.visualization.DataTable();
+  chartData.addColumn('string', 'Classe');
+  
+  // COM columns
+  chartData.addColumn('number', 'COM-1');
+  chartData.addColumn('number', 'COM-2');
+  chartData.addColumn('number', 'COM-3');
+  chartData.addColumn('number', 'COM-4');
+  
+  // TRA columns
+  chartData.addColumn('number', 'TRA-1');
+  chartData.addColumn('number', 'TRA-2');
+  chartData.addColumn('number', 'TRA-3');
+  chartData.addColumn('number', 'TRA-4');
+  
+  // PART columns
+  chartData.addColumn('number', 'PART-1');
+  chartData.addColumn('number', 'PART-2');
+  chartData.addColumn('number', 'PART-3');
+  chartData.addColumn('number', 'PART-4');
+  
+  data.forEach(item => {
+    const comScores = item.scores.com || [0, 0, 0, 0];
+    const traScores = item.scores.tra || [0, 0, 0, 0];
+    const partScores = item.scores.part || [0, 0, 0, 0];
+    
+    chartData.addRow([
+      item.class,
+      // COM scores
+      comScores[0], comScores[1], comScores[2], comScores[3],
+      // TRA scores
+      traScores[0], traScores[1], traScores[2], traScores[3],
+      // PART scores
+      partScores[0], partScores[1], partScores[2], partScores[3]
+    ]);
+  });
+  
+  const options = {
+    title: 'Distribution détaillée des scores par critère',
+    legend: { position: 'none' },
+    isStacked: false,
+    bar: { groupWidth: '85%' },
+    hAxis: {
+      title: 'Classe',
+      titleTextStyle: { color: '#333' }
+    },
+    vAxis: {
+      title: 'Effectif',
+      titleTextStyle: { color: '#333' },
+      minValue: 0
+    },
+    colors: [
+      // COM colors
+      '#e53935', '#ffb300', '#8bc34a', '#2e7d32',
+      // TRA colors
+      '#e53935', '#ffb300', '#8bc34a', '#2e7d32',
+      // PART colors
+      '#e53935', '#ffb300', '#8bc34a', '#2e7d32'
+    ],
+    // Ajouter cette ligne pour désactiver l'affichage automatique du tableau
+    enableInteractivity: true
+  };
+  
+  const chart = new google.visualization.ColumnChart(document.getElementById('detailedChart'));
+  // Utilisez cette syntaxe spécifique pour le dessin
+  google.visualization.events.addListener(chart, 'ready', function() {
+    // Le graphique est prêt, vous pouvez faire des ajustements supplémentaires ici si nécessaire
+  });
+  chart.draw(chartData, options);
+}
+
+    function drawCompareChart(data) {
+      if (!data || !data.test || !data.def) {
+        document.getElementById('barChart').innerHTML =
+          '<div style="text-align:center; padding:20px;">Aucune classe correspondante trouvée pour la comparaison</div>';
+        return;
+      }
+      
+      const compareData = [];
+      
+      data.test.forEach(testItem => {
+        const className = testItem.class.replace(/TEST|TST/g, "").trim();
+        const defItem = data.def.find(d =>
+          d.class.includes(className) ||
+          d.class.replace(/DEF/g, "") === className
+        );
+        
+        if (defItem) {
+          const criterias = ['com', 'tra', 'part', 'abs'];
+          const item = { class: className };
+          
+          criterias.forEach(crit => {
+            const testScores = testItem.scores[crit] || [0, 0, 0, 0];
+            const defScores = defItem.scores[crit] || [0, 0, 0, 0];
+            
+            const testTotal = testScores.reduce((a, b) => a + b, 0);
+            const defTotal = defScores.reduce((a, b) => a + b, 0);
+            
+            if (testTotal > 0) {
+              const testValue = (
+                testScores[0] * 1 +
+                testScores[1] * 2 +
+                testScores[2] * 3 +
+                testScores[3] * 4
+              ) / testTotal;
+              item[`test_${crit}`] = +testValue.toFixed(2);
+            } else {
+              item[`test_${crit}`] = 0;
+            }
+            
+            if (defTotal > 0) {
+              const defValue = (
+                defScores[0] * 1 +
+                defScores[1] * 2 +
+                defScores[2] * 3 +
+                defScores[3] * 4
+              ) / defTotal;
+              item[`def_${crit}`] = +defValue.toFixed(2);
+            } else {
+              item[`def_${crit}`] = 0;
+            }
+          });
+          
+          compareData.push(item);
+        }
+      });
+      
+      if (compareData.length === 0) {
+        document.getElementById('barChart').innerHTML =
+          '<div style="text-align:center; padding:20px;">Aucune classe correspondante trouvée pour la comparaison</div>';
+        return;
+      }
+      
+      const chartData = new google.visualization.DataTable();
+      chartData.addColumn('string', 'Classe');
+      chartData.addColumn('number', 'TEST-COM');
+      chartData.addColumn('number', 'DEF-COM');
+      chartData.addColumn('number', 'TEST-TRA');
+      chartData.addColumn('number', 'DEF-TRA');
+      chartData.addColumn('number', 'TEST-PART');
+      chartData.addColumn('number', 'DEF-PART');
+      chartData.addColumn('number', 'TEST-ABS');
+      chartData.addColumn('number', 'DEF-ABS');
+      
+      compareData.forEach(item => {
+        chartData.addRow([
+          item.class,
+          item.test_com || 0,
+          item.def_com || 0,
+          item.test_tra || 0,
+          item.def_tra || 0,
+          item.test_part || 0,
+          item.def_part || 0,
+          item.test_abs || 0,
+          item.def_abs || 0
+        ]);
+      });
+      
+      const options = {
+        title: 'Comparaison des moyennes TEST vs DEF',
+        isStacked: false,
+        hAxis: {
+          title: 'Classe',
+          titleTextStyle: { color: '#333' }
+        },
+        vAxis: {
+          title: 'Score moyen pondéré',
+          titleTextStyle: { color: '#333' },
+          minValue: 0,
+          maxValue: 4
+        },
+        legend: { position: 'top', maxLines: 3 },
+        colors: [
+          '#8884d8', '#4680b4', // COM: TEST, DEF
+          '#82ca9d', '#3cba54', // TRA: TEST, DEF
+          '#ffc658', '#f6c028', // PART: TEST, DEF
+          '#ff8c5a', '#d93025'  // ABS: TEST, DEF
+        ]
+      };
+      
+      const chart = new google.visualization.ColumnChart(document.getElementById('barChart'));
+      chart.draw(chartData, options);
+      document.getElementById('barChart-title').textContent = 'Comparaison TEST vs DEF';
+    }
+
+    function drawParityCompareChart(data) {
+      if (!data || !data.test || !data.def) {
+        document.getElementById('parityChart').innerHTML =
+          '<div style="text-align:center; padding:20px;">Aucune classe correspondante trouvée pour la comparaison</div>';
+        return;
+      }
+      
+      const compareData = [];
+      
+      data.test.forEach(testItem => {
+        const className = testItem.class.replace(/TEST|TST/g, "").trim();
+        const defItem = data.def.find(d =>
+          d.class.includes(className) ||
+          d.class.replace(/DEF/g, "") === className
+        );
+        
+        if (defItem) {
+          compareData.push({
+            class: className,
+            test_female: testItem.female || 0,
+            test_male: testItem.male || 0,
+            def_female: defItem.female || 0,
+            def_male: defItem.male || 0
+          });
+        }
+      });
+      
+      if (compareData.length === 0) {
+        document.getElementById('parityChart').innerHTML =
+          '<div style="text-align:center; padding:20px;">Aucune classe correspondante trouvée pour la comparaison</div>';
+        return;
+      }
+      
+      const chartData = new google.visualization.DataTable();
+      chartData.addColumn('string', 'Classe');
+      chartData.addColumn('number', 'Filles TEST');
+      chartData.addColumn('number', 'Garçons TEST');
+      chartData.addColumn('number', 'Filles DEF');
+      chartData.addColumn('number', 'Garçons DEF');
+      
+      compareData.forEach(item => {
+        chartData.addRow([
+          item.class,
+          item.test_female,
+          item.test_male,
+          item.def_female,
+          item.def_male
+        ]);
+      });
+      
+      const options = {
+        title: 'Comparaison Parité TEST vs DEF',
+        isStacked: false,
+        hAxis: {
+          title: 'Classe',
+          titleTextStyle: { color: '#333' }
+        },
+        vAxis: {
+          title: 'Effectif',
+          titleTextStyle: { color: '#333' },
+          minValue: 0
+        },
+        legend: { position: 'top', maxLines: 3 },
+        colors: [
+          '#F599B9', // Filles TEST (rose clair)
+          '#6B9BD3', // Garçons TEST (bleu clair)
+          '#F28EA8', // Filles DEF (rose foncé)
+          '#4F81BD'  // Garçons DEF (bleu foncé)
+        ]
+      };
+      
+      const chart = new google.visualization.ColumnChart(document.getElementById('parityChart'));
+      chart.draw(chartData, options);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f2f5; }
+    .container { background-color: #ffffff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .title { font-size: 18px; font-weight: 500; margin-bottom: 16px; color: #333; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px; }
+    h3 { font-size: 16px; font-weight: 500; margin-top: 20px; margin-bottom: 10px; color: #1a73e8; }
+    label { display: block; margin-bottom: 8px; font-size: 14px; cursor: pointer; }
+    input[type="checkbox"] { margin-right: 8px; vertical-align: middle; }
+    button { background-color: #4285f4; color: white; border: none; padding: 10px 16px; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 0.3s; box-shadow: 0 1px 2px rgba(0,0,0,0.1); margin-right: 10px; margin-bottom: 10px; }
+    button:hover { background-color: #3367d6; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+    button:disabled { background-color: #bdbdbd; cursor: not-allowed; box-shadow: none; }
+    #loadingIndicator, #statusBox { margin-top: 15px; font-size: 14px; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 3px solid #f0f0f0; border-top-color: #4285f4; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 8px; vertical-align: middle; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .error { color: #d93025; } .success { color: #1e8e3e; } .warning { color: #f9ab00; }
+    .class-list { max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+    .class-item { margin-bottom: 5px; }
+    .options-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
+    .button-group { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px;}
+    .reset-button { background-color: #d93025; } .reset-button:hover { background-color: #c5221f; }
+    .modern-spinner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+    }
+    .modern-spinner .dot1, .modern-spinner .dot2, .modern-spinner .dot3 {
+      width: 12px;
+      height: 12px;
+      margin: 0 4px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4285f4, #34a853);
+      animation: bounce 1.4s infinite ease-in-out both;
+    }
+    .modern-spinner .dot2 {
+      animation-delay: -0.32s;
+    }
+    .modern-spinner .dot3 {
+      animation-delay: -0.16s;
+    }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0.7); }
+      40% { transform: scale(1.2); }
+    }
+    .mat-accordion {
+      margin-top: 20px;
+    }
+    .mat-expansion-panel {
+      margin-bottom: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .mat-header {
+      padding: 10px;
+      cursor: pointer;
+    }
+    .mat-header-icon {
+      margin-right: 10px;
+    }
+    .mat-header-title {
+      font-size: 16px;
+      font-weight: 500;
+    }
+    .mat-header-expand {
+      margin-left: 10px;
+    }
+    .mat-content {
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">Phase 5 : Finalisation des Classes</div>
+
+    <h3>Classes Disponibles</h3>
+    <div id="classList" class="class-list">Chargement...</div>
+    <button onclick="selectAll(true)">Sélectionner</button>
+    <button onclick="selectAll(false)">Désélectionner</button>
+
+    <div class="options-section">
+      <h3>Options</h3>
+      <label>
+        <input type="checkbox" id="hideTmpSheets">
+        Masquer les onglets TEST/non-finalisés après l'opération
+      </label>
+      <label>
+        <input type="checkbox" id="pdfColor" checked>
+        Inclure couleurs/formats dans l'export PDF
+      </label>
+    </div>
+
+    <div class="mat-accordion">
+      <div class="mat-expansion-panel" id="section-finalisation">
+        <div class="mat-header" onclick="togglePanel(this)">
+          <i class="material-icons mat-header-icon">done_all</i>
+          <span class="mat-header-title">Finalisation</span>
+          <span class="mat-header-expand material-icons">expand_more</span>
+        </div>
+        <div class="mat-content">
+          <button id="btnFinaliser" onclick="lancerFinalisationConsole()">Finaliser</button>
+          <button id="btnExportPDFFinal" onclick="exporterPDFFinalisationConsole()">Exporter PDF</button>
+          <button id="btnExportExcelFinal" onclick="exporterExcelFinalisationConsole()">Exporter Excel</button>
+          <div id="loadingIndicatorFinalisation" style="display:none; flex-direction: column; align-items: center; margin-top:16px;">
+            <div class="modern-spinner">
+              <div class="dot1"></div>
+              <div class="dot2"></div>
+              <div class="dot3"></div>
+            </div>
+            <span id="loadingMessageFinalisation">Traitement en cours...</span>
+          </div>
+          <div id="statusBoxFinalisation"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="button-group">
+      <button onclick="runAction('genererPDF')" id="btnPdf" title="Générer un PDF pour chaque classe sélectionnée.">📄 Générer PDF Sélection</button>
+      <button onclick="runAction('exporterExcel')" id="btnExcel" title="Exporter toutes les classes sélectionnées au format Excel.">📊 Exporter Excel Sélection</button>
+      <button onclick="runAction('reinitialiser')" id="btnReset" class="reset-button" title="Réinitialiser toute la phase 5 (attention, action destructive !)">⚠️ Réinitialiser Tout</button>
+    </div>
+
+    <div id="loadingIndicator" style="display:none; flex-direction: column; align-items: center; margin-top:16px;">
+      <div class="modern-spinner">
+        <div class="dot1"></div>
+        <div class="dot2"></div>
+        <div class="dot3"></div>
+      </div>
+      <span id="loadingMessage">Traitement en cours...</span>
+      <div id="progressBarContainer" style="width: 100%; margin-top: 10px; display:none;">
+        <div id="progressBar" style="height: 8px; background: linear-gradient(90deg, #4285f4, #34a853); border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
+        <div id="progressText" style="font-size:12px; margin-top:2px; text-align:right; color:#4285f4;"></div>
+      </div>
+      <div id="treatedList" style="font-size:12px; color:#666; margin-top:4px; text-align:left;"></div>
+    </div>
+    <div id="statusBox"></div>
+
+  </div>
+
+  <script>
+    let availableClasses = []; // Stocker la liste complète des classes
+
+    // Au chargement, récupérer les classes
+    document.addEventListener('DOMContentLoaded', function() {
+      setLoading(true, "Chargement des classes...");
+      google.script.run
+        .withSuccessHandler(populateClassList)
+        .withFailureHandler(showError)
+        .Phase5_GetClassesDisponiblesPourUI(); // Appel spécifique pour cette UI
+    });
+
+    // Afficher la liste des classes avec checkboxes
+    function populateClassList(result) {
+      setLoading(false);
+      const container = document.getElementById('classList');
+      if (!result || !result.success) {
+        container.innerHTML = '<span class="error">Erreur chargement classes.</span>';
+        showError(result || { message: "Erreur inconnue chargement classes." });
+        return;
+      }
+
+      availableClasses = result.classes || [];
+      const defExists = result.classesAvecDef || [];
+      container.innerHTML = ''; // Vider
+
+      if (availableClasses.length === 0) {
+        container.innerHTML = 'Aucune classe TEST trouvée à finaliser.';
+        return;
+      }
+
+      availableClasses.forEach(className => {
+        const div = document.createElement('div');
+        div.className = 'class-item';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `chk-${className}`;
+        checkbox.value = className;
+        const label = document.createElement('label');
+        label.htmlFor = `chk-${className}`;
+        label.textContent = className;
+        if (defExists.includes(className)) {
+          label.innerHTML += ' <span style="color: #fbbc04; font-size: 0.9em;">(DEF existe)</span>';
+        }
+        div.appendChild(checkbox);
+        div.appendChild(label);
+        container.appendChild(div);
+      });
+    }
+
+    // Sélectionner/Désélectionner tout
+    function selectAll(checked) {
+      document.querySelectorAll('#classList input[type="checkbox"]').forEach(cb => {
+        cb.checked = checked;
+      });
+    }
+
+    // Fonction générique pour appeler les actions du backend
+    function runAction(actionName) {
+      setLoading(true, 'Traitement en cours...');
+      showStatus('', 'info');
+      const selectedClasses = Array.from(document.querySelectorAll('#classList input[type="checkbox"]:checked')).map(cb => cb.value);
+      const hideTmp = document.getElementById('hideTmpSheets').checked;
+      const pdfColor = document.getElementById('pdfColor').checked;
+
+      if (actionName !== 'reinitialiser' && selectedClasses.length === 0) {
+        showStatus("Veuillez sélectionner au moins une classe.", "warning");
+        setLoading(false);
+        return;
+      }
+      if (actionName === 'reinitialiser' && !confirm("Êtes-vous sûr de vouloir supprimer tous les onglets DEF et les bilans ?")) {
+          setLoading(false);
+          return;
+      }
+
+      const params = {
+        action: actionName,
+        classes: selectedClasses,
+        hideTmp: hideTmp,         // Option pour finaliser/toggle
+        avecColoration: pdfColor // Option pour PDF
+      };
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          setLoading(false);
+          handleResult(result);
+        })
+        .withFailureHandler(function(error) {
+          setLoading(false);
+          showError(error);
+        })
+        .Phase5_ProcessActionPourUI(params); // Point d'entrée unique
+    }
+
+    // Afficher le résultat ou l'erreur
+    function handleResult(result) {
+      if (result.success) {
+        showStatus('✅ ' + (result.message || 'Opération terminée avec succès !'), 'success');
+      } else {
+        showStatus('❌ ' + (result.message || 'Une erreur est survenue.'), 'error');
+      }
+
+      // Ouvrir les liens de fichiers si présents
+      if (result.files && result.files.length > 0) {
+         result.files.forEach(file => {
+           if (file.url) {
+             // Proposer à l'utilisateur d'ouvrir le lien (plus sûr que window.open direct)
+             const link = document.createElement('a');
+             link.href = file.url;
+             link.textContent = `Télécharger/Ouvrir ${file.name}`;
+             link.target = '_blank';
+             link.style.display = 'block';
+             link.style.marginTop = '10px';
+             document.getElementById('statusBox').appendChild(link);
+           }
+         });
+      }
+
+      // Si réinitialisation réussie, recharger la liste des classes
+       if (result.action === 'reinitialiser' && result.success) {
+           setLoading(true, "Rechargement liste des classes...");
+           google.script.run
+               .withSuccessHandler(populateClassList)
+               .withFailureHandler(showError)
+               .Phase5_GetClassesDisponiblesPourUI();
+       } else if (result.action === 'finaliser' && result.success) {
+           // Mettre à jour l'affichage des classes existantes (DEF existe)
+            setLoading(true, "Mise à jour liste des classes...");
+            google.script.run
+                .withSuccessHandler(populateClassList)
+                .withFailureHandler(showError)
+                .Phase5_GetClassesDisponiblesPourUI();
+       }
+    }
+
+    // Afficher les messages de statut/erreur
+    function showStatus(message, type = 'info') {
+      const statusBox = document.getElementById('statusBox');
+      statusBox.textContent = message;
+      statusBox.className = type; // Applique la classe success/error/warning/info
+    }
+
+    // Afficher les erreurs techniques
+    function showError(error) {
+      const message = error ? (error.message || String(error)) : "Erreur inconnue.";
+      showStatus(`❌ Erreur technique : ${message}`, 'error');
+      console.error("Erreur GAS:", error);
+    }
+
+    // Gérer l'état de chargement
+    function setLoading(isLoading, message = "Traitement en cours...", progress = null, progressMax = null, treatedItems = []) {
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      const loadingMessage = document.getElementById('loadingMessage');
+      const progressBarContainer = document.getElementById('progressBarContainer');
+      const progressBar = document.getElementById('progressBar');
+      const progressText = document.getElementById('progressText');
+      const treatedList = document.getElementById('treatedList');
+
+      if (isLoading) {
+        loadingIndicator.style.display = 'flex';
+        loadingMessage.textContent = message;
+        document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        // Affiche la barre si progress est fourni
+        if (progress !== null && progressMax !== null) {
+          progressBarContainer.style.display = 'block';
+          const percent = Math.round((progress / progressMax) * 100);
+          progressBar.style.width = percent + '%';
+          progressText.textContent = `Classe ${progress}/${progressMax}`;
+        } else {
+          progressBarContainer.style.display = 'none';
+          progressBar.style.width = '0%';
+          progressText.textContent = '';
+        }
+        // Liste des classes traitées
+        if (treatedItems && treatedItems.length > 0) {
+          treatedList.innerHTML = 'Déjà traitées : ' + treatedItems.join(', ');
+        } else {
+          treatedList.innerHTML = '';
+        }
+      } else {
+        loadingIndicator.style.display = 'none';
+        loadingMessage.textContent = '';
+        progressBarContainer.style.display = 'none';
+        progressBar.style.width = '0%';
+        progressText.textContent = '';
+        treatedList.innerHTML = '';
+        document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+      }
+    }
+
+    // Exemple d'appel côté Apps Script (callback progressif)
+    // setLoading(true, 'Export PDF en cours...', 2, 8, ['5e1', '5e2']);
+
+    // Pour les traitements par lots, côté Apps Script, utiliser google.script.run.withSuccessHandler(function(progressData) { ... })
+    // et appeler setLoading(true, message, progress, progressMax, treatedItems) à chaque étape.
+
+    function setLoadingFinalisation(isLoading, message = "Traitement en cours...") {
+      const loadingIndicator = document.getElementById('loadingIndicatorFinalisation');
+      const loadingMessage = document.getElementById('loadingMessageFinalisation');
+      if (isLoading) {
+        loadingIndicator.style.display = 'flex';
+        loadingMessage.textContent = message;
+        document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+      } else {
+        loadingIndicator.style.display = 'none';
+        loadingMessage.textContent = '';
+        document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+      }
+    }
+
+    function lancerFinalisationConsole() {
+      setLoadingFinalisation(true, 'Finalisation en cours...');
+      document.getElementById('statusBoxFinalisation').textContent = '';
+      google.script.run
+        .withSuccessHandler(function(res) {
+          setLoadingFinalisation(false);
+          document.getElementById('statusBoxFinalisation').textContent = '✅ Finalisation terminée !';
+        })
+        .withFailureHandler(function(e) {
+          setLoadingFinalisation(false);
+          document.getElementById('statusBoxFinalisation').textContent = '❌ Erreur lors de la finalisation.';
+        })
+        .lancerFinalisation();
+    }
+
+    function exporterPDFFinalisationConsole() {
+      setLoadingFinalisation(true, 'Export PDF en cours...');
+      google.script.run
+        .withSuccessHandler(function(res) {
+          setLoadingFinalisation(false);
+          document.getElementById('statusBoxFinalisation').textContent = '✅ Export PDF terminé !';
+        })
+        .withFailureHandler(function(e) {
+          setLoadingFinalisation(false);
+          document.getElementById('statusBoxFinalisation').textContent = '❌ Erreur export PDF.';
+        })
+        .exporterPDFFinalisation();
+    }
+
+<script>
+  function onGeneratePDF() {
+    const classes = getSelectedClasses();        // votre code
+    const coloration = false;                   // ou récupéré du formulaire
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success) {
+          // Ouvre automatiquement le dossier dans un nouvel onglet
+          window.open(res.folderUrl, '_blank');
+          // Vous pouvez également afficher un petit toast ou message :
+          document.getElementById('status').innerText = `${res.files.length} PDF générés !`;
+        } else {
+          alert('Erreur PDF : ' + (res.message||''));
+        }
+      })
+      .withFailureHandler(err => {
+        alert('Erreur Apps Script : ' + err.message);
+      })
+      .Phase5_ProcessActionPourUI({
+        action: 'genererPDF',
+        classes: classes,
+        avecColoration: coloration
+      });
+  }
+</script>
+
+<button onclick="onGeneratePDF()">Générer les PDF</button>
+<div id="status"></div>
+
+
+    function exporterExcelFinalisationConsole() {
+      setLoadingFinalisation(true, 'Export Excel en cours...');
+      google.script.run
+        .withSuccessHandler(function(res) {
+          setLoadingFinalisation(false);
+          document.getElementById('statusBoxFinalisation').textContent = '✅ Export Excel terminé !';
+        })
+        .withFailureHandler(function(e) {
+          setLoadingFinalisation(false);
+          document.getElementById('statusBoxFinalisation').textContent = '❌ Erreur export Excel.';
+        })
+        .exporterExcelFinalisation();
+    }
+
+    function togglePanel(panelHeader) {
+      const panel = panelHeader.parentNode;
+      const content = panel.querySelector('.mat-content');
+      if (content.style.display === 'block') {
+        content.style.display = 'none';
+        panelHeader.querySelector('.mat-header-expand').textContent = 'expand_more';
+      } else {
+        content.style.display = 'block';
+        panelHeader.querySelector('.mat-header-expand').textContent = 'expand_less';
+      }
+    }
+  </script>
+</body>
+</html>

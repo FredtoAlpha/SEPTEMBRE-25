@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestionnaire de Groupes - Interface Modulaire</title>
+  
+  <!-- Dépendances externes -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Styles CSS spécifiques aux groupes -->
+  <?!= include('groupsStyles'); ?>
+</head>
+<body class="bg-gray-50">
+  <!-- Header principal -->
+  <header class="bg-white shadow-sm border-b">
+    <div class="container mx-auto px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <button onclick="closeGroupsInterface()" class="btn btn-secondary btn-sm">
+            <i class="fas fa-arrow-left"></i> Retour
+          </button>
+          <h1 class="text-2xl font-bold text-gray-800">
+            <i class="fas fa-layer-group text-purple-600"></i>
+            Gestionnaire de Groupes
+          </h1>
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <button id="btnAutoSave" class="btn btn-warning btn-sm">
+            <i class="fas fa-shield-alt"></i> Auto-sauvegarde
+          </button>
+          <button id="btnGroupStats" class="btn btn-primary btn-sm">
+            <i class="fas fa-chart-bar"></i> Statistiques
+          </button>
+          <button id="btnGroupHelp" class="btn btn-secondary btn-sm">
+            <i class="fas fa-question-circle"></i> Aide
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation par onglets -->
+  <nav class="bg-white border-b">
+    <div class="container mx-auto px-6">
+      <div class="flex space-x-8">
+        <button id="tabCreator" class="tab-button active" data-tab="creator">
+          <i class="fas fa-plus-circle"></i> Créer des groupes
+        </button>
+        <button id="tabManager" class="tab-button" data-tab="manager">
+          <i class="fas fa-cog"></i> Gérer les groupes
+        </button>
+        <button id="tabTemplates" class="tab-button" data-tab="templates">
+          <i class="fas fa-layer-group"></i> Modèles de groupes
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Contenu principal -->
+  <main class="container mx-auto px-6 py-6">
+    <!-- Onglet Créateur de groupes -->
+    <div id="tabContentCreator" class="tab-content active">
+      <div class="bg-white rounded-lg shadow-sm p-6">
+        <h2 class="text-xl font-bold mb-6">
+          <i class="fas fa-magic text-purple-600"></i>
+          Création guidée de groupes
+        </h2>
+        
+        <!-- Indicateur d'étapes -->
+        <div class="mb-8">
+          <div class="flex items-center justify-between max-w-4xl mx-auto">
+            <div class="step-indicator active current" data-step="1">
+              <div class="step-number">1</div>
+              <div class="step-label">Type de groupe</div>
+            </div>
+            <div class="step-line"></div>
+            <div class="step-indicator" data-step="2">
+              <div class="step-number">2</div>
+              <div class="step-label">Configuration</div>
+            </div>
+            <div class="step-line"></div>
+            <div class="step-indicator" data-step="3">
+              <div class="step-number">3</div>
+              <div class="step-label">Répartition auto</div>
+            </div>
+            <div class="step-line"></div>
+            <div class="step-indicator" data-step="4">
+              <div class="step-number">4</div>
+              <div class="step-label">Ajustements</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Contenu des étapes -->
+        <div id="stepContent" class="min-h-96">
+          <!-- Le contenu sera chargé dynamiquement par GroupsUI -->
+        </div>
+        
+        <!-- Navigation entre étapes -->
+        <div class="flex justify-between items-center mt-8 pt-6 border-t">
+          <button id="btnPrevious" class="btn btn-secondary" disabled>
+            <i class="fas fa-arrow-left"></i> Précédent
+          </button>
+          <button id="btnNext" class="btn btn-primary" disabled>
+            Suivant <i class="fas fa-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onglet Gestionnaire de groupes -->
+    <div id="tabContentManager" class="tab-content hidden">
+      <div class="bg-white rounded-lg shadow-sm p-6">
+        <h2 class="text-xl font-bold mb-6">
+          <i class="fas fa-cog text-blue-600"></i>
+          Gestion des groupes existants
+        </h2>
+        
+        <div id="groupsManagerContent">
+          <!-- Contenu chargé dynamiquement -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Onglet Modèles de groupes -->
+    <div id="tabContentTemplates" class="tab-content hidden">
+      <div class="bg-white rounded-lg shadow-sm p-6">
+        <h2 class="text-xl font-bold mb-6">
+          <i class="fas fa-layer-group text-green-600"></i>
+          Modèles de groupes
+        </h2>
+        
+        <div id="templatesContent">
+          <!-- Contenu chargé dynamiquement -->
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modals -->
+  <div id="modalContainer">
+    <!-- Les modals seront créés dynamiquement -->
+  </div>
+
+  <!-- Scripts -->
+  <?!= include('groupsUI'); ?>
+  
+  <script>
+    // Fonction pour fermer l'interface et revenir à la fenêtre principale
+    function closeGroupsInterface() {
+      // Notifier la fenêtre parent des changements
+      if (window.opener && typeof window.opener.notifyGroupsChanged === 'function') {
+        window.opener.notifyGroupsChanged();
+      }
+      
+      // Fermer la fenêtre
+      window.close();
+    }
+    
+    // Initialisation après chargement
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('🎯 DOM chargé, initialisation de GroupsUI...');
+      
+      // Vérifier que GroupsUI est chargé et l'initialiser
+      if (typeof GroupsUI !== 'undefined' && GroupsUI.init) {
+        console.log('✅ GroupsUI trouvé, initialisation...');
+        try {
+          GroupsUI.init();
+          console.log('✅ GroupsUI initialisé avec succès');
+          
+          // Lier les événements des boutons après initialisation
+          setTimeout(() => {
+            // Boutons de l'en-tête
+            const btnAutoSave = document.getElementById('btnAutoSave');
+            const btnGroupStats = document.getElementById('btnGroupStats');
+            const btnGroupHelp = document.getElementById('btnGroupHelp');
+            
+            if (btnAutoSave) {
+              btnAutoSave.onclick = () => GroupsUI.toggleAutoSave();
+            }
+            
+            if (btnGroupStats) {
+              btnGroupStats.onclick = () => GroupsUI.showStats();
+            }
+            
+            if (btnGroupHelp) {
+              btnGroupHelp.onclick = () => GroupsUI.showHelp();
+            }
+            
+            // Onglets
+            document.querySelectorAll('.tab-button').forEach(button => {
+              button.onclick = (e) => {
+                e.preventDefault();
+                const tab = e.currentTarget.getAttribute('data-tab');
+                if (tab) {
+                  GroupsUI.switchTab(tab);
+                }
+              };
+            });
+            
+            // Boutons de navigation
+            const btnNext = document.getElementById('btnNext');
+            const btnPrevious = document.getElementById('btnPrevious');
+            
+            if (btnNext) {
+              btnNext.onclick = () => {
+                console.log('🔵 Bouton Suivant cliqué');
+                GroupsUI.nextStep();
+              };
+            }
+            
+            if (btnPrevious) {
+              btnPrevious.onclick = () => {
+                console.log('🔵 Bouton Précédent cliqué');
+                GroupsUI.previousStep();
+              };
+            }
+            
+            console.log('✅ Tous les événements sont liés');
+          }, 100);
+          
+        } catch (error) {
+          console.error('❌ Erreur lors de l\'initialisation de GroupsUI:', error);
+        }
+      } else {
+        console.error('❌ GroupsUI non trouvé au chargement');
+        // Afficher un message d'erreur à l'utilisateur
+        document.getElementById('stepContent').innerHTML = `
+          <div class="text-center py-8">
+            <i class="fas fa-exclamation-triangle text-6xl text-red-500 mb-4"></i>
+            <p class="text-lg text-gray-700">Erreur de chargement du module GroupsUI</p>
+            <p class="text-sm text-gray-500 mt-2">Veuillez recharger la page ou contacter l'administrateur</p>
+            <button onclick="location.reload()" class="btn btn-primary mt-4">
+              <i class="fas fa-redo"></i> Recharger
+            </button>
+          </div>
+        `;
+      }
+    });
+  </script>
+</body>
+</html>

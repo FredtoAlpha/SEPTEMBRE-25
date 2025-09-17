@@ -1,0 +1,644 @@
+<script>
+// ========== MODULE DE GESTION DES GROUPES V2 ==========
+// Module autonome pour la gestion des groupes
+
+// Protection ultra-sécurisée contre l'exécution côté serveur
+(function() {
+  'use strict';
+  
+  // Vérification complète de l'environnement - VERSION RENFORCÉE
+  try {
+    if (typeof window === 'undefined') {
+      console.log('🚫 Module groupes : window non défini, arrêt côté serveur');
+      return;
+    }
+    
+    if (typeof document === 'undefined') {
+      console.log('🚫 Module groupes : document non défini, arrêt côté serveur');
+      return;
+    }
+    
+    if (typeof navigator === 'undefined') {
+      console.log('🚫 Module groupes : navigator non défini, arrêt côté serveur');
+      return;
+    }
+    
+    // Vérification supplémentaire : on doit être dans un navigateur
+    if (!window.location || !window.location.href) {
+      console.log('🚫 Module groupes : pas d\'URL de navigation, arrêt côté serveur');
+      return;
+    }
+    
+    console.log('✅ Module groupes : environnement client détecté, initialisation...');
+  } catch (error) {
+    console.log('🚫 Module groupes : erreur lors de la vérification d\'environnement, arrêt côté serveur');
+    return;
+  }
+  
+  // ========== ÉTAT GLOBAL DU MODULE ==========
+  const GroupsState = {
+    currentStep: 1,
+    selectedStudents: [],
+    generatedGroups: [],
+    groupType: null,
+    groupSize: 4
+  };
+
+  // ========== FONCTIONS UTILITAIRES ==========
+  function showToast(message, type = 'info') {
+    try {
+      const toast = document.createElement('div');
+      toast.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg ${
+        type === 'error' ? 'bg-red-500 text-white' :
+        type === 'success' ? 'bg-green-500 text-white' :
+        'bg-blue-500 text-white'
+      }`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    } catch (error) {
+      console.error('Erreur showToast:', error);
+    }
+  }
+
+  function createModal(content, options = {}) {
+    try {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60';
+      modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">${options.title || 'Gestion des Groupes'}</h2>
+            <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <div class="modal-content">
+            ${content}
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      return modal;
+    } catch (error) {
+      console.error('Erreur createModal:', error);
+    }
+  }
+
+  // ========== FONCTIONS DE GESTION DES GROUPES ==========
+  function openGroupsInterface() {
+    console.log('🚀 Ouverture de l\'interface de groupes...');
+    
+    const content = `
+      <div class="space-y-6">
+        <!-- Étapes -->
+        <div class="flex justify-center space-x-8 mb-6">
+          <div class="step-indicator ${GroupsState.currentStep >= 1 ? 'active' : ''} ${GroupsState.currentStep === 1 ? 'current' : ''}">
+            <div class="step-number">1</div>
+            <div class="step-label">Type de groupe</div>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-indicator ${GroupsState.currentStep >= 2 ? 'active' : ''} ${GroupsState.currentStep === 2 ? 'current' : ''}">
+            <div class="step-number">2</div>
+            <div class="step-label">Sélection</div>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-indicator ${GroupsState.currentStep >= 3 ? 'active' : ''} ${GroupsState.currentStep === 3 ? 'current' : ''}">
+            <div class="step-number">3</div>
+            <div class="step-label">Génération</div>
+          </div>
+        </div>
+
+        <!-- Contenu dynamique selon l'étape -->
+        <div id="stepContent">
+          ${getStepContent()}
+        </div>
+      </div>
+    `;
+
+    createModal(content, { title: 'Gestion des Groupes' });
+  }
+
+  function getStepContent() {
+    switch(GroupsState.currentStep) {
+      case 1:
+        return getStep1Content();
+      case 2:
+        return getStep2Content();
+      case 3:
+        return getStep3Content();
+      default:
+        return '<p>Erreur : étape inconnue</p>';
+    }
+  }
+
+  function getStep1Content() {
+    return `
+      <div class="text-center mb-6">
+        <h3 class="text-lg font-semibold mb-4">Choisissez le type de groupe</h3>
+        <p class="text-gray-600 mb-6">Sélectionnez le type de groupe que vous souhaitez créer</p>
+      </div>
+      
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="group-type-card" onclick="GroupsModule.selectGroupType('random')">
+          <div class="icon">🎲</div>
+          <h4>Aléatoire</h4>
+          <p>Groupes formés de manière aléatoire</p>
+          <div class="example">Ex: 4 élèves par groupe</div>
+        </div>
+        
+        <div class="group-type-card" onclick="GroupsModule.selectGroupType('balanced')">
+          <div class="icon">⚖️</div>
+          <h4>Équilibré</h4>
+          <p>Groupes équilibrés selon les critères</p>
+          <div class="example">Ex: Mixité filles/garçons</div>
+        </div>
+        
+        <div class="group-type-card" onclick="GroupsModule.selectGroupType('performance')">
+          <div class="icon">📊</div>
+          <h4>Performance</h4>
+          <p>Groupes basés sur les performances</p>
+          <div class="example">Ex: Niveaux mélangés</div>
+        </div>
+      </div>
+      
+      <div class="mt-6 text-center">
+        <label class="block text-sm font-medium mb-2">Taille des groupes</label>
+        <select id="groupSize" class="border rounded px-3 py-2" onchange="GroupsModule.updateGroupSize(this.value)">
+          <option value="2">2 élèves</option>
+          <option value="3">3 élèves</option>
+          <option value="4" selected>4 élèves</option>
+          <option value="5">5 élèves</option>
+          <option value="6">6 élèves</option>
+        </select>
+      </div>
+    `;
+  }
+
+  function getStep2Content() {
+    return `
+      <div class="mb-4">
+        <h3 class="text-lg font-semibold mb-2">Sélectionnez les élèves</h3>
+        <p class="text-gray-600 mb-4">Cochez les élèves que vous voulez inclure dans les groupes</p>
+        
+        <div class="flex gap-4 mb-4">
+          <button onclick="GroupsModule.selectAllStudents()" class="btn btn-secondary">
+            <i class="fas fa-check-double"></i> Tout sélectionner
+          </button>
+          <button onclick="GroupsModule.deselectAllStudents()" class="btn btn-secondary">
+            <i class="fas fa-times"></i> Tout désélectionner
+          </button>
+        </div>
+        
+        <div class="bg-gray-50 p-3 rounded mb-4">
+          <span class="text-sm font-medium">Élèves sélectionnés : </span>
+          <span id="selectedCount" class="text-blue-600 font-bold">0</span>
+        </div>
+      </div>
+      
+      <div id="studentsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-96 overflow-y-auto">
+        <div class="col-span-full text-center py-8">
+          <div class="spinner"></div>
+          <p class="text-gray-600 mt-2">Chargement des élèves...</p>
+        </div>
+      </div>
+    `;
+  }
+
+  function getStep3Content() {
+    return `
+      <div class="mb-4">
+        <h3 class="text-lg font-semibold mb-2">Groupes générés</h3>
+        <p class="text-gray-600 mb-4">Vos groupes ont été créés avec succès</p>
+      </div>
+      
+      <div id="groupsDisplay" class="space-y-4">
+        <!-- Groupes affichés ici -->
+      </div>
+      
+      <div class="flex gap-4 mt-6">
+        <button onclick="GroupsModule.exportGroups()" class="btn btn-primary">
+          <i class="fas fa-download"></i> Exporter
+        </button>
+        <button onclick="GroupsModule.saveGroups()" class="btn btn-success">
+          <i class="fas fa-save"></i> Sauvegarder
+        </button>
+        <button onclick="GroupsModule.regenerateGroups()" class="btn btn-secondary">
+          <i class="fas fa-redo"></i> Régénérer
+        </button>
+      </div>
+    `;
+  }
+
+  // ========== FONCTIONS PUBLIQUES DU MODULE ==========
+  // Création sécurisée de l'objet global
+  const GroupsModule = {
+    // Initialisation
+    init: function() {
+      console.log('🚀 Initialisation du module de groupes...');
+      this.updateGroupsButton();
+    },
+
+    // Ouverture de l'interface
+    open: function() {
+      openGroupsInterface();
+    },
+
+    // Sélection du type de groupe
+    selectGroupType: function(type) {
+      GroupsState.groupType = type;
+      
+      // Mettre à jour l'affichage
+      document.querySelectorAll('.group-type-card').forEach(card => {
+        card.classList.remove('selected');
+      });
+      event.target.closest('.group-type-card').classList.add('selected');
+      
+      // Passer à l'étape suivante
+      this.nextStep();
+    },
+
+    // Mise à jour de la taille des groupes
+    updateGroupSize: function(size) {
+      GroupsState.groupSize = parseInt(size);
+    },
+
+    // Navigation entre étapes
+    nextStep: function() {
+      if (GroupsState.currentStep < 3) {
+        GroupsState.currentStep++;
+        this.updateStepDisplay();
+      }
+    },
+
+    prevStep: function() {
+      if (GroupsState.currentStep > 1) {
+        GroupsState.currentStep--;
+        this.updateStepDisplay();
+      }
+    },
+
+    // Mise à jour de l'affichage des étapes
+    updateStepDisplay: function() {
+      const stepContent = document.getElementById('stepContent');
+      if (stepContent) {
+        stepContent.innerHTML = getStepContent();
+      }
+      
+      // Mettre à jour les indicateurs d'étapes
+      document.querySelectorAll('.step-indicator').forEach((indicator, index) => {
+        indicator.classList.remove('active', 'current');
+        if (index + 1 <= GroupsState.currentStep) {
+          indicator.classList.add('active');
+        }
+        if (index + 1 === GroupsState.currentStep) {
+          indicator.classList.add('current');
+        }
+      });
+      
+      // Charger les élèves si on est à l'étape 2
+      if (GroupsState.currentStep === 2) {
+        setTimeout(() => {
+          this.loadStudents();
+        }, 100);
+      }
+    },
+
+    // Sélection des élèves
+    selectAllStudents: function() {
+      document.querySelectorAll('.student-checkbox').forEach(checkbox => {
+        checkbox.checked = true;
+      });
+      this.updateSelectedCount();
+    },
+
+    deselectAllStudents: function() {
+      document.querySelectorAll('.student-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+      });
+      this.updateSelectedCount();
+    },
+
+    updateSelectedCount: function() {
+      const count = document.querySelectorAll('.student-checkbox:checked').length;
+      const countElement = document.getElementById('selectedCount');
+      if (countElement) {
+        countElement.textContent = count;
+      }
+    },
+
+    // Chargement des élèves depuis le backend
+    loadStudents: function() {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((students) => {
+            this.displayStudentsList(students);
+          })
+          .withFailureHandler((error) => {
+            showToast('Erreur lors du chargement des élèves', 'error');
+            console.error('Erreur chargement élèves:', error);
+          })
+          .getStudentsForGroups();
+      } else {
+        showToast('Google Apps Script non disponible', 'error');
+      }
+    },
+
+    // Affichage de la liste des élèves
+    displayStudentsList: function(students) {
+      const container = document.getElementById('studentsList');
+      if (!container) return;
+
+      container.innerHTML = students.map(student => `
+        <div class="flex items-center space-x-2 p-2 bg-white border rounded">
+          <input type="checkbox" 
+                 class="student-checkbox" 
+                 value="${student.id}" 
+                 onchange="GroupsModule.updateSelectedCount()">
+          <span class="text-sm">${student.nom} ${student.prenom}</span>
+          <span class="text-xs text-gray-500">(${student.classe})</span>
+        </div>
+      `).join('');
+      
+      this.updateSelectedCount();
+    },
+
+    // Génération des groupes
+    generateGroups: function() {
+      const selectedStudents = Array.from(document.querySelectorAll('.student-checkbox:checked'))
+        .map(checkbox => checkbox.value);
+      
+      if (selectedStudents.length === 0) {
+        showToast('Veuillez sélectionner au moins un élève', 'error');
+        return;
+      }
+
+      // Algorithme de génération simple
+      const groups = [];
+      const shuffled = [...selectedStudents].sort(() => Math.random() - 0.5);
+      
+      for (let i = 0; i < shuffled.length; i += GroupsState.groupSize) {
+        groups.push(shuffled.slice(i, i + GroupsState.groupSize));
+      }
+
+      GroupsState.generatedGroups = groups;
+      this.nextStep();
+      this.displayGroups();
+    },
+
+    // Affichage des groupes
+    displayGroups: function() {
+      const container = document.getElementById('groupsDisplay');
+      if (!container) return;
+
+      container.innerHTML = GroupsState.generatedGroups.map((group, index) => `
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">Groupe ${index + 1}</h4>
+          <div class="grid grid-cols-2 gap-2">
+            ${group.map(student => `
+              <div class="bg-white px-3 py-1 rounded border text-sm">
+                ${student}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+    },
+
+    // Export des groupes
+    exportGroups: function() {
+      const data = {
+        type: GroupsState.groupType,
+        size: GroupsState.groupSize,
+        groups: GroupsState.generatedGroups,
+        date: new Date().toISOString()
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `groupes_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('Groupes exportés avec succès', 'success');
+    },
+
+    // Sauvegarde des groupes
+    saveGroups: function() {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(() => {
+            showToast('Groupes sauvegardés avec succès', 'success');
+          })
+          .withFailureHandler((error) => {
+            showToast('Erreur lors de la sauvegarde', 'error');
+            console.error('Erreur sauvegarde:', error);
+          })
+          .saveGroups(GroupsState.generatedGroups);
+      } else {
+        showToast('Google Apps Script non disponible', 'error');
+      }
+    },
+
+    // Régénération des groupes
+    regenerateGroups: function() {
+      this.generateGroups();
+    },
+
+    // Mise à jour du bouton groupes
+    updateGroupsButton: function() {
+      console.log('📊 Bouton groupes mis à jour');
+    }
+  };
+
+  // Attribution sécurisée à window - VERSION RENFORCÉE
+  try {
+    if (typeof window !== 'undefined' && window) {
+      window.GroupsModule = GroupsModule;
+      console.log('✅ GroupsModule assigné à window avec succès');
+    } else {
+      console.log('🚫 Window non disponible, pas d\'assignation');
+    }
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'assignation à window:', error);
+  }
+
+  // ========== STYLES CSS ==========
+  try {
+    const styles = document.createElement('style');
+    styles.textContent = `
+      .step-indicator {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        position: relative;
+      }
+      
+      .step-number {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        background: #e5e7eb;
+        color: #6b7280;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        transition: all 0.3s;
+      }
+      
+      .step-indicator.active .step-number {
+        background: #3b82f6;
+        color: white;
+      }
+      
+      .step-indicator.current .step-number {
+        background: #1d4ed8;
+        color: white;
+        transform: scale(1.1);
+      }
+      
+      .step-label {
+        font-size: 0.875rem;
+        color: #6b7280;
+        font-weight: 500;
+      }
+      
+      .step-indicator.active .step-label {
+        color: #3b82f6;
+      }
+      
+      .step-line {
+        flex: 1;
+        height: 2px;
+        background: #e5e7eb;
+        margin: 0 1rem;
+        margin-top: 1rem;
+      }
+      
+      .group-type-card {
+        border: 2px solid #e5e7eb;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        cursor: pointer;
+        transition: all 0.3s;
+        text-align: center;
+      }
+      
+      .group-type-card:hover {
+        border-color: #3b82f6;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+      }
+      
+      .group-type-card.selected {
+        border-color: #3b82f6;
+        background: #eff6ff;
+      }
+      
+      .group-type-card .icon {
+        font-size: 2rem;
+        color: #3b82f6;
+        margin-bottom: 1rem;
+      }
+      
+      .group-type-card h4 {
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: #1f2937;
+      }
+      
+      .group-type-card p {
+        color: #6b7280;
+        margin-bottom: 1rem;
+      }
+      
+      .group-type-card .example {
+        font-size: 0.875rem;
+        color: #3b82f6;
+        font-style: italic;
+      }
+      
+      .student-checkbox {
+        accent-color: #3b82f6;
+      }
+      
+      .btn {
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      
+      .btn-primary {
+        background: #3b82f6;
+        color: white;
+      }
+      
+      .btn-primary:hover {
+        background: #2563eb;
+      }
+      
+      .btn-secondary {
+        background: #6b7280;
+        color: white;
+      }
+      
+      .btn-secondary:hover {
+        background: #4b5563;
+      }
+      
+      .btn-success {
+        background: #10b981;
+        color: white;
+      }
+      
+      .btn-success:hover {
+        background: #059669;
+      }
+      
+      .spinner {
+        width: 2rem;
+        height: 2rem;
+        border: 3px solid #e5e7eb;
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(styles);
+    console.log('✅ Styles CSS ajoutés avec succès');
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'ajout des styles:', error);
+  }
+
+  // ========== INITIALISATION AUTOMATIQUE ==========
+  setTimeout(() => {
+    try {
+      if (typeof window !== 'undefined' && window && window.GroupsModule && typeof window.GroupsModule.init === 'function') {
+        window.GroupsModule.init();
+        console.log('✅ Module de groupes initialisé avec succès');
+      } else {
+        console.log('🚫 Conditions d\'initialisation non remplies');
+      }
+    } catch (error) {
+      console.error('❌ Erreur lors de l\'initialisation:', error);
+    }
+  }, 200);
+
+})();
+</script> 

@@ -1,0 +1,3562 @@
+<script>
+  // ========== MODULE D'INTERFACE UTILISATEUR POUR LES GROUPES ==========
+  
+  // --- hériter de google.script.run quand on est ouvert via window.open() ---
+  if (typeof google === 'undefined' &&
+      window.opener && window.opener.google && window.opener.google.script) {
+    window.google = window.opener.google;
+    console.log('🔗 Pont Apps Script hérité depuis la fenêtre parente');
+  } else if (typeof google === 'undefined') {
+    console.warn('❌ google.script.run reste indisponible – appels backend bloqués');
+  }
+  
+  (function() {
+    'use strict';
+    
+    // Anti-doublon : empêcher le chargement multiple
+    if (window.__GroupsUI_loaded__) {
+      console.log('🔄 GroupsUI déjà chargé, skip');
+      return;
+    }
+    window.__GroupsUI_loaded__ = true;
+    
+    // Vérification de l'environnement client
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      console.log('Environnement serveur détecté, skip GroupsUI');
+      return;
+    }
+  
+    window.GroupsUI = {
+    // NB : certaines méthodes sont redéfinies plus bas par des patches.
+    // Seule la dernière occurrence compte.
+    
+    // État de l'interface
+    currentTab: 'creator',
+    currentStep: 1,
+    selectedStudents: [],
+    generatedGroups: [],
+    groupType: null,
+    selectedLanguage: 'ESP',
+    numGroups: 4,
+    numLevelGroups: 3,
+    selectedSubject: 'Maths',
+    selectedDistributionType: 'homogeneous',
+    selectedClasses: [],
+    autoSaveEnabled: false,
+    
+    // Cache pour les données des onglets INT
+    availableStudents: [],
+    availableClasses: null,
+    
+    // Initialisation
+    init() {
+      console.log('🎨 Initialisation de GroupsUI...');
+      this.bindEvents();
+      this.loadInitialContent();
+      this.updateStepDisplay();
+      
+      // Pré-charger les élèves pour éviter le clignotement du sélecteur de classes
+      this.getAvailableStudents();
+    },
+    
+    /* =====================================================================
+       🔧  Loader des élèves depuis les onglets INT (Apps Script)
+       =====================================================================*/
+    getAvailableStudents() {
+      /* a. Cache déjà rempli → retour immédiat */
+      if (this.availableStudents.length) return this.availableStudents;
+  
+      /* b. Premier appel : on déclenche le backend */
+      if (typeof google !== 'undefined' &&
+          google.script &&
+          google.script.run) {
+  
+        google.script.run
+          .withSuccessHandler((students) => {
+            // Le backend renvoie les élèves filtrés sur <classe>INT
+            this.availableStudents = Array.isArray(students) ? students : [];
+            console.log(`✅ ${this.availableStudents.length} élèves chargés`);
+            
+            /* ➜ auto-déduire la liste de classes INT si le serveur n'en renvoie pas */
+            if (!this.availableClasses || !this.availableClasses.length) {
+              this.availableClasses = [...new Set(
+                this.availableStudents
+                      .map(s => (s.classe||'').trim())
+                      .filter(c => /INT$/i.test(c))
+              )].sort();
+              console.log('✅ Classes INT détectées :', this.availableClasses);
+            }
+            
+            // Rafraîchir l'interface
+            this.loadStepContent(this.currentStep);
+          })
+          .withFailureHandler((err) => {
+            console.error('getStudentsForGroups :', err);
+            this.showMessage('Impossible de charger les élèves', 'error');
+          })
+          .getStudentsForGroups();          // ← fonction serveur
+      } else {
+        this.showMessage('Connexion Apps Script introuvable', 'error');
+      }
+  
+      /* c. Tableau vide tant que la réponse n'est pas arrivée */
+      return [];
+    },
+    
+    // Liaison des événements
+    bindEvents() {
+      // Événements pour les onglets
+      document.querySelectorAll('.tab-button').forEach(button => {
+        button.addEventListener('click', (e) => {
+          e.preventDefault();
+          const tab = e.currentTarget.getAttribute('data-tab') || e.currentTarget.id.replace('tab', '').toLowerCase();
+          this.switchTab(tab);
+        });
+      });
+      
+      // Événements pour les étapes
+      document.querySelectorAll('.step-indicator').forEach(indicator => {
+        indicator.addEventListener('click', (e) => {
+          const step = parseInt(e.currentTarget.getAttribute('data-step'));
+          if (step <= this.currentStep) {
+            this.goToStep(step);
+          }
+        });
+      });
+    },
+    
+    // Chargement du contenu initial
+    loadInitialContent() {
+      this.loadStepContent(1);
+    },
+    
+    // Changement d'onglet
+    switchTab(tabName) {
+      console.log(`🔄 Changement vers l'onglet: ${tabName}`);
+      
+      // Mettre à jour les boutons d'onglets
+      document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      const targetBtn = document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
+      if (targetBtn) targetBtn.classList.add('active');
+      
+      // Mettre à jour le contenu
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+        content.classList.add('hidden');
+      });
+      const targetContent = document.getElementById(`tabContent${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
+      if (targetContent) {
+        targetContent.classList.add('active');
+        targetContent.classList.remove('hidden');
+      }
+      
+      this.currentTab = tabName;
+      
+      // Charger le contenu spécifique à l'onglet
+      switch(tabName) {
+        case 'creator':
+          this.loadStepContent(this.currentStep);
+          break;
+        case 'manager':
+          this.loadGroupsManager();
+          break;
+        case 'templates':
+          this.loadTemplates();
+          break;
+      }
+    },
+    
+    // Navigation entre étapes
+    nextStep() {
+      console.log('➡️ nextStep appelée, étape actuelle:', this.currentStep);
+      console.log('➡️ Type de groupe:', this.groupType);
+      console.log('➡️ Classes sélectionnées:', this.selectedClasses);
+      console.log('➡️ Peut passer à l\'étape suivante ?', this.canGoToNextStep());
+      
+      if (this.canGoToNextStep()) {
+        this.currentStep++;
+        console.log('➡️ Nouvelle étape:', this.currentStep);
+        this.loadStepContent(this.currentStep);
+        this.updateStepDisplay();
+      } else {
+        console.log('⚠️ Conditions non remplies pour passer à l\'étape suivante');
+        // Afficher un message d'erreur plus explicite
+        if (this.currentStep === 1 && !this.groupType) {
+          this.showMessage('Veuillez sélectionner un type de groupe', 'warning');
+        } else if (this.currentStep === 2 && this.selectedClasses.length === 0) {
+          const minClasses = this.groupType === 'needs' ? 2 : 1;
+          this.showMessage(`Veuillez sélectionner au moins ${minClasses} classe(s)`, 'warning');
+        }
+      }
+    },
+    
+    previousStep() {
+      if (this.currentStep > 1) {
+        this.currentStep--;
+        this.loadStepContent(this.currentStep);
+        this.updateStepDisplay();
+      }
+    },
+    
+    goToStep(step) {
+      if (step >= 1 && step <= 4) {
+        this.currentStep = step;
+        this.loadStepContent(step);
+        this.updateStepDisplay();
+      }
+    },
+    
+  
+    
+    // Mise à jour de l'affichage des étapes
+    updateStepDisplay() {
+      console.log('🔄 updateStepDisplay - étape actuelle:', this.currentStep);
+      
+      document.querySelectorAll('.step-indicator').forEach((indicator, index) => {
+        const stepNumber = index + 1;
+        indicator.classList.remove('active', 'current');
+        
+        if (stepNumber < this.currentStep) {
+          indicator.classList.add('active');
+        } else if (stepNumber === this.currentStep) {
+          indicator.classList.add('active', 'current');
+        }
+      });
+      
+      // Mettre à jour les boutons de navigation
+      const btnPrevious = document.getElementById('btnPrevious');
+      const btnNext = document.getElementById('btnNext');
+      
+      if (btnPrevious) {
+        btnPrevious.disabled = this.currentStep <= 1;
+      }
+      
+      if (btnNext) {
+        const canGoNext = this.canGoToNextStep();
+        console.log('🔵 Bouton Suivant - peut continuer ?', canGoNext);
+        btnNext.disabled = !canGoNext;
+        
+        if (this.currentStep === 4) {
+          btnNext.innerHTML = '<i class="fas fa-save"></i> Enregistrer';
+          btnNext.onclick = () => {
+            console.log('💾 Enregistrement des groupes');
+            this.saveGroups();
+          };
+        } else {
+          btnNext.innerHTML = 'Suivant <i class="fas fa-arrow-right"></i>';
+          btnNext.onclick = () => {
+            console.log('🔵 Bouton Suivant cliqué');
+            this.nextStep();
+          };
+        }
+      }
+    },
+    
+    // Contenu de l'étape 1
+    getStep1Content() {
+      return `
+        <div class="space-y-6">
+          <h3 class="text-lg font-semibold mb-4">Choisissez le type de groupe à créer</h3>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Groupes de langues -->
+            <div class="group-type-card ${this.groupType === 'language' ? 'selected' : ''}" onclick="GroupsUI.selectGroupType('language')">
+              <div class="flex items-center mb-3">
+                <i class="fas fa-language text-3xl text-blue-600 mr-3"></i>
+                <h4 class="text-lg font-bold">Groupes de langues</h4>
+              </div>
+              <p class="text-gray-600 mb-3">
+                Répartition des élèves selon leur langue vivante (Espagnol ou Italien)
+              </p>
+              <ul class="text-sm text-gray-500 space-y-1">
+                <li><i class="fas fa-check text-green-500 mr-2"></i>Séparation ESP/ITA</li>
+                <li><i class="fas fa-check text-green-500 mr-2"></i>Équilibrage F/M</li>
+                <li><i class="fas fa-check text-green-500 mr-2"></i>Score PART prioritaire</li>
+              </ul>
+            </div>
+            
+            <!-- Groupes de besoins -->
+            <div class="group-type-card ${this.groupType === 'needs' ? 'selected' : ''}" onclick="GroupsUI.selectGroupType('needs')">
+              <div class="flex items-center mb-3">
+                <i class="fas fa-chart-line text-3xl text-purple-600 mr-3"></i>
+                <h4 class="text-lg font-bold">Groupes de besoins</h4>
+              </div>
+              <p class="text-gray-600 mb-3">
+                Répartition selon les scores en Maths et Français
+              </p>
+              <ul class="text-sm text-gray-500 space-y-1">
+                <li><i class="fas fa-check text-green-500 mr-2"></i>Basé sur scores importés</li>
+                <li><i class="fas fa-check text-green-500 mr-2"></i>Groupes homogènes/hétérogènes</li>
+                <li><i class="fas fa-check text-green-500 mr-2"></i>3 classes → 4 groupes</li>
+              </ul>
+            </div>
+          </div>
+          
+          ${this.groupType ? `
+            <div class="message info">
+              <i class="fas fa-info-circle mr-2"></i>
+              Vous avez sélectionné : <strong>${this.groupType === 'language' ? 'Groupes de langues' : 'Groupes de besoins'}</strong>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    },
+    
+    // Contenu de l'étape 2
+    getStep2Content() {
+      if (this.groupType === 'language') {
+        return this.getLanguageConfigContent();
+      } else {
+        return this.getNeedsConfigContent();
+      }
+    },
+    
+    // Configuration pour groupes de langues
+    getLanguageConfigContent() {
+      return `
+        <div class="space-y-6">
+          <h3 class="text-lg font-semibold mb-4">Configuration des groupes de langues</h3>
+          
+          <!-- Sélection de la langue -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Langue à traiter</h4>
+            <div class="flex gap-4">
+              <button id="btnLangESP" class="lang-btn ${this.selectedLanguage === 'ESP' ? 'active' : ''}" onclick="GroupsUI.selectLanguage('ESP')">
+                <i class="fas fa-flag"></i> Espagnol (ESP)
+              </button>
+              <button id="btnLangITA" class="lang-btn ${this.selectedLanguage === 'ITA' ? 'active' : ''}" onclick="GroupsUI.selectLanguage('ITA')">
+                <i class="fas fa-flag"></i> Italien (ITA)
+              </button>
+            </div>
+            <div class="mt-2 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+              <i class="fas fa-info-circle mr-2"></i>
+              <strong>Note :</strong> Pour les groupes ESP, le système inclut automatiquement les élèves avec "ESP" en colonne F ET ceux avec une valeur vide (ESP par défaut).
+            </div>
+          </div>
+          
+          <!-- Nombre de groupes -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Nombre de groupes</h4>
+            <div class="flex items-center gap-4">
+              <button id="btnDecreaseGroups" class="btn-number" onclick="GroupsUI.changeNumGroups(-1)">
+                <i class="fas fa-minus"></i>
+              </button>
+              <input type="number" id="numGroups" value="${this.numGroups}" min="2" max="8" class="input-number" onchange="GroupsUI.updateNumGroups(this.value)">
+              <button id="btnIncreaseGroups" class="btn-number" onclick="GroupsUI.changeNumGroups(1)">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Sélection des classes -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Classes à inclure</h4>
+            <div id="classesSelection" class="grid grid-cols-3 gap-3">
+              ${this.renderClassesSelection()}
+            </div>
+          </div>
+          
+          ${this.selectedClasses.length > 0 ? `
+            <div class="message success">
+              <i class="fas fa-check-circle mr-2"></i>
+              ${this.selectedClasses.length} classe(s) sélectionnée(s)
+            </div>
+          ` : ''}
+          
+          ${this.selectedLanguage && this.selectedClasses.length > 0 ? `
+            <div class="message info">
+              <i class="fas fa-users mr-2"></i>
+              <strong>${this.selectedLanguage} :</strong> ${this.getFilteredStudents().length} élèves disponibles pour la génération des groupes
+            </div>
+          ` : ''}
+        </div>
+      `;
+    },
+    
+    // Configuration pour groupes de besoins
+    getNeedsConfigContent() {
+      return `
+        <div class="space-y-6">
+          <h3 class="text-lg font-semibold mb-4">Configuration des groupes de besoins</h3>
+          
+          <!-- Sélection de la matière -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Matière</h4>
+            <div class="flex gap-4">
+              <button class="subject-btn ${this.selectedSubject === 'Maths' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Maths')">
+                <i class="fas fa-calculator"></i> Mathématiques
+              </button>
+              <button class="subject-btn ${this.selectedSubject === 'Francais' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Francais')">
+                <i class="fas fa-book"></i> Français
+              </button>
+              <button class="subject-btn ${this.selectedSubject === 'Both' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Both')">
+                <i class="fas fa-graduation-cap"></i> Les deux
+              </button>
+            </div>
+          </div>
+          
+          <!-- Type de répartition -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Type de répartition</h4>
+            <div class="flex gap-4">
+              <button class="distribution-btn ${this.selectedDistributionType === 'homogeneous' ? 'active' : ''}" onclick="GroupsUI.selectDistributionType('homogeneous')">
+                <i class="fas fa-equals"></i> Groupes homogènes
+              </button>
+              <button class="distribution-btn ${this.selectedDistributionType === 'heterogeneous' ? 'active' : ''}" onclick="GroupsUI.selectDistributionType('heterogeneous')">
+                <i class="fas fa-random"></i> Groupes hétérogènes
+              </button>
+            </div>
+          </div>
+          
+          <!-- Structure -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Structure des groupes</h4>
+            <div class="structure-info">
+              <p class="text-sm text-gray-600 mb-3">
+                Nombre de classes à regrouper : <strong>2-6</strong> → 
+                Nombre de groupes à créer : <strong>${this.numLevelGroups}</strong>
+              </p>
+              <div class="flex items-center gap-4">
+                <button class="btn-number" onclick="GroupsUI.changeNumLevelGroups(-1)">
+                  <i class="fas fa-minus"></i>
+                </button>
+                <input type="number" id="numLevelGroups" value="${this.numLevelGroups}" min="2" max="6" class="input-number" onchange="GroupsUI.updateNumLevelGroups(this.value)">
+                <button class="btn-number" onclick="GroupsUI.changeNumLevelGroups(1)">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Sélection des classes -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Classes à regrouper (sélectionnez 2-6 classes)</h4>
+            <div id="classesSelectionLevel" class="grid grid-cols-3 gap-3">
+              ${this.renderClassesSelection()}
+            </div>
+          </div>
+          
+          ${this.selectedClasses.length >= 2 && this.selectedClasses.length <= 6 ? `
+            <div class="message success">
+              <i class="fas fa-check-circle mr-2"></i>
+              ${this.selectedClasses.length} classes sélectionnées → ${this.numLevelGroups} groupes seront créés
+            </div>
+          ` : this.selectedClasses.length > 0 ? `
+            <div class="message warning">
+              <i class="fas fa-exclamation-triangle mr-2"></i>
+              Sélectionnez entre 2 et 6 classes (actuellement : ${this.selectedClasses.length})
+            </div>
+          ` : ''}
+        </div>
+      `;
+    },
+    
+    // Rendu de la sélection des classes
+    renderClassesSelection() {
+      // Récupérer les classes depuis l'interface principale ou le stockage
+      const availableClasses = this.getAvailableClasses();
+      
+      return availableClasses.map(className => `
+        <button class="class-select-btn ${this.selectedClasses.includes(className) ? 'selected' : ''}" 
+                data-class="${className}" 
+                onclick="GroupsUI.toggleClassSelection('${className}')">
+          <i class="fas ${this.selectedClasses.includes(className) ? 'fa-check-square' : 'fa-square'}"></i>
+          ${className}
+        </button>
+      `).join('');
+    },
+    
+    // Contenu de l'étape 3
+    getStep3Content() {
+      return `
+        <div class="space-y-6">
+          <h3 class="text-lg font-semibold mb-4">Répartition automatique</h3>
+          
+          <!-- Boutons d'action existants -->
+          <div class="text-center py-8">
+            ${this.generatedGroups.length === 0 ? `
+              <div class="space-y-4">
+                <i class="fas fa-cogs text-6xl text-gray-400"></i>
+                <p class="text-gray-600">
+                  Prêt à générer la répartition automatique
+                </p>
+                <button class="btn btn-primary btn-lg" onclick="GroupsUI.generateGroups()">
+                  <i class="fas fa-magic"></i> Générer les groupes
+                </button>
+              </div>
+            ` : `
+              <div class="space-y-4">
+                <i class="fas fa-check-circle text-6xl text-green-500"></i>
+                <p class="text-gray-600">
+                  ${this.generatedGroups.length} groupes générés avec succès
+                </p>
+                <div class="flex justify-center gap-2">
+                  <button class="btn btn-secondary" onclick="GroupsUI.regenerateGroups()">
+                    <i class="fas fa-redo"></i> Régénérer
+                  </button>
+                  <button class="btn btn-primary" onclick="GroupsUI.toggleStatsView()">
+                    <i class="fas fa-chart-bar"></i> Vue statistiques
+                  </button>
+                </div>
+              </div>
+            `}
+          </div>
+          
+          <!-- Affichage des groupes ou stats -->
+          <div id="groupsDisplay">
+            ${this.generatedGroups.length > 0 ? this.renderGeneratedGroups() : ''}
+          </div>
+          
+          <div id="statsDisplay" style="display: none;">
+            ${this.generatedGroups.length > 0 ? this.renderStatsByClass() : ''}
+          </div>
+        </div>
+      `;
+    },
+    
+    // Rendu des groupes générés
+    renderGeneratedGroups() {
+      const students = this.getAvailableStudents();
+      
+      // Fonction helper pour générer les badges de scores
+      const getScoreBadge = (score, label) => {
+        const value = parseInt(score) || 0;
+        return `<span class="score-badge score-${value}" title="${label}: ${value}/4">${value}</span>`;
+      };
+      
+      return `
+        <div class="generated-groups">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-${Math.min(this.generatedGroups.length, 4)} gap-4">
+            ${this.generatedGroups.map((group, index) => `
+              <div class="group-preview">
+                <h4 class="font-bold mb-2">${group.name} (${group.students.length})</h4>
+                <div class="space-y-1 max-h-40 overflow-y-auto">
+                  ${group.students.map(studentId => {
+                    const student = students.find(s => s.id === studentId);
+                    if (!student) return '';
+                    
+                    return `
+                      <div class="student-item text-sm flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <i class="fas fa-user ${student.sexe === 'F' ? 'text-pink-500' : 'text-blue-500'}"></i>
+                          <span class="${this.getStudentColorClass(student)}">${student.nom} ${student.prenom || ''}</span>
+                          <span class="text-xs text-gray-500">(${student.classe})</span>
+                          ${student.lv2Badge ? `
+                            <span class="text-xs px-2 py-1 rounded-full ${
+                              student.lv2Badge.includes('ITA') ? 'bg-blue-100 text-blue-800' : 
+                              student.lv2Badge.includes('ESP') ? 'bg-green-100 text-green-800' : 
+                              'bg-gray-100 text-gray-800'
+                            }">
+                              ${student.lv2Badge}
+                            </span>
+                          ` : ''}
+                        </div>
+                        <div class="flex items-center gap-1">
+                          ${getScoreBadge(student.com, 'COM')}
+                          ${getScoreBadge(student.tra, 'TRA')}
+                          ${getScoreBadge(student.part, 'PART')}
+                          ${this.groupType === 'needs' && student.scores ? `
+                            ${getScoreBadge(student.scores.M, 'Maths')}
+                            ${getScoreBadge(student.scores.F, 'Français')}
+                          ` : ''}
+                        </div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    },
+    
+    // Nouvelle fonction pour afficher les stats par classe
+    renderStatsByClass() {
+      const students = this.getAvailableStudents();
+      const statsByClass = {};
+      
+      // Regrouper les élèves par classe et calculer les stats
+      this.generatedGroups.forEach(group => {
+        group.students.forEach(studentId => {
+          const student = students.find(s => s.id === studentId);
+          if (!student) return;
+          
+          const classe = student.classe;
+          if (!statsByClass[classe]) {
+            statsByClass[classe] = {
+              total: 0,
+              byGroup: {},
+              scores: {
+                COM: [0, 0, 0, 0, 0], // index 0 pour null, 1-4 pour les scores
+                TRA: [0, 0, 0, 0, 0],
+                PART: [0, 0, 0, 0, 0],
+                M: [0, 0, 0, 0, 0],
+                F: [0, 0, 0, 0, 0]
+              }
+            };
+          }
+          
+          statsByClass[classe].total++;
+          
+          // Compter par groupe
+          if (!statsByClass[classe].byGroup[group.name]) {
+            statsByClass[classe].byGroup[group.name] = 0;
+          }
+          statsByClass[classe].byGroup[group.name]++;
+          
+          // Compter les scores
+          const countScore = (value, type) => {
+            const score = parseInt(value) || 0;
+            statsByClass[classe].scores[type][score]++;
+          };
+          
+          countScore(student.com, 'COM');
+          countScore(student.tra, 'TRA');
+          countScore(student.part, 'PART');
+          if (student.scores) {
+            countScore(student.scores.M, 'M');
+            countScore(student.scores.F, 'F');
+          }
+        });
+      });
+      
+      // Générer le HTML
+      return `
+        <div class="stats-by-class mt-6">
+          <h3 class="text-lg font-semibold mb-4">Statistiques par classe d'origine</h3>
+          <div class="grid gap-4">
+            ${Object.entries(statsByClass).sort(([a], [b]) => a.localeCompare(b)).map(([classe, stats]) => `
+              <div class="bg-white p-4 rounded-lg shadow">
+                <div class="flex justify-between items-center mb-3">
+                  <h4 class="font-bold text-lg">${classe}</h4>
+                  <span class="text-sm text-gray-600">${stats.total} élèves</span>
+                </div>
+                
+                <!-- Répartition par groupe -->
+                <div class="mb-3">
+                  <div class="text-sm text-gray-600 mb-1">Répartition :</div>
+                  <div class="flex gap-2 flex-wrap">
+                    ${Object.entries(stats.byGroup).map(([groupName, count]) => `
+                      <span class="text-xs bg-gray-100 px-2 py-1 rounded">
+                        ${groupName}: ${count}
+                      </span>
+                    `).join('')}
+                  </div>
+                </div>
+                
+                <!-- Scores -->
+                <div class="grid grid-cols-5 gap-2 text-xs">
+                  ${['COM', 'TRA', 'PART', 'M', 'F'].map(type => `
+                    <div>
+                      <div class="font-semibold mb-1">${type === 'M' ? 'Maths' : type === 'F' ? 'Français' : type}</div>
+                      <div class="flex gap-1">
+                        ${[1, 2, 3, 4].map(score => {
+                          const count = stats.scores[type][score];
+                          return count > 0 ? `
+                            <span class="score-badge score-${score}" title="${count} élève(s)">
+                              ${count}
+                            </span>
+                          ` : '';
+                        }).join('')}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    },
+    
+    // Contenu de l'étape 4
+    getStep4Content() {
+      const students = this.getAvailableStudents();
+      
+      return `
+        <div class="space-y-6">
+          <h3 class="text-lg font-semibold mb-4">Ajustements manuels</h3>
+          
+          <!-- Mode d'interaction -->
+          <div class="flex gap-4 mb-4">
+            <button class="btn ${!this.swapMode ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="GroupsUI.setSwapMode(false)">
+              <i class="fas fa-arrows-alt"></i> Glisser-déposer
+            </button>
+            <button class="btn ${this.swapMode ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="GroupsUI.setSwapMode(true)">
+              <i class="fas fa-exchange-alt"></i> Mode échange (clic)
+            </button>
+          </div>
+          
+          ${this.swapMode ? `
+            <div class="message info">
+              <i class="fas fa-info-circle mr-2"></i>
+              Mode échange activé : cliquez sur deux élèves pour les échanger
+            </div>
+          ` : ''}
+          
+          <!-- Panneau de statistiques -->
+          <div class="stats-panel bg-gray-50 p-4 rounded-lg">
+            ${this.renderGroupStats()}
+          </div>
+          
+          <!-- Interface de drag & drop ou click swap -->
+          <div class="groups-adjustment">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-${Math.min(this.generatedGroups.length, 4)} gap-4">
+              ${this.generatedGroups.map((group, index) => `
+                <div class="group-container" data-group-index="${index}">
+                  <div class="group-header">
+                    <h4 class="font-bold">${group.name}</h4>
+                    <span class="group-count">${group.students.length} élèves</span>
+                  </div>
+                  <div class="group-students sortable ${this.swapMode ? 'swap-mode' : ''}" id="group-${index}">
+                    ${group.students.map((studentId, studentIndex) => {
+                      const student = students.find(s => s.id === studentId);
+                      const colorClass = this.getStudentColorClass(student);
+                      return student ? `
+                        <div class="student-card ${this.swapMode ? 'clickable' : 'draggable'}" 
+                             data-student-id="${studentId}"
+                             data-group-index="${index}"
+                             data-student-index="${studentIndex}"
+                             onclick="${this.swapMode ? 'GroupsUI.handleStudentClick(this)' : ''}">
+                          <i class="fas fa-user ${student.sexe === 'F' ? 'text-pink-500' : 'text-blue-500'}"></i>
+                          <span class="${this.getStudentColorClass(student)}">${student.nom} ${student.prenom}</span>
+                          ${this.groupType === 'needs' && student.scores ? `
+                            <span class="text-xs text-gray-500 ml-auto">
+                              M:${student.scores.M || 0} F:${student.scores.F || 0}
+                            </span>
+                          ` : ''}
+                        </div>
+                      ` : '';
+                    }).join('')}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          <!-- Actions finales -->
+          <div class="flex justify-center gap-4 mt-6">
+            <button class="btn btn-secondary" onclick="GroupsUI.resetGroups()">
+              <i class="fas fa-undo"></i> Réinitialiser
+            </button>
+            <button class="btn btn-secondary" onclick="GroupsUI.previewGroups()">
+              <i class="fas fa-eye"></i> Aperçu
+            </button>
+            <button class="btn btn-primary" onclick="GroupsUI.saveGroups()">
+              <i class="fas fa-save"></i> Enregistrer définitivement
+            </button>
+          </div>
+        </div>
+      `;
+    },
+    
+    // Rendu des statistiques des groupes
+    renderGroupStats() {
+      const stats = this.calculateDetailedStats();
+      
+      return `
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div class="stat-item">
+            <div class="stat-label">Total élèves</div>
+            <div class="stat-value">${stats.global.totalStudents}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Moyenne/groupe</div>
+            <div class="stat-value">${stats.global.avgPerGroup}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Ratio F/M</div>
+            <div class="stat-value">${stats.global.femaleRatio}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Moy. COM</div>
+            <div class="stat-value">${stats.global.avgCOM}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Moy. TRA</div>
+            <div class="stat-value">${stats.global.avgTRA}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Moy. PART</div>
+            <div class="stat-value">${stats.global.avgPART}</div>
+          </div>
+        </div>
+      `;
+    },
+    
+    // Calcul des statistiques
+    calculateGroupStats() {
+      const students = this.getAvailableStudents();
+      let totalStudents = 0;
+      let totalFemales = 0;
+      const groupSizes = [];
+      
+      this.generatedGroups.forEach(group => {
+        totalStudents += group.students.length;
+        groupSizes.push(group.students.length);
+        
+        group.students.forEach(studentId => {
+          const student = students.find(s => s.id === studentId);
+          if (student && student.sexe === 'F') {
+            totalFemales++;
+          }
+        });
+      });
+      
+      const avgPerGroup = totalStudents / this.generatedGroups.length;
+      const femaleRatio = (totalFemales / totalStudents) * 100;
+      
+      // Calcul de l'écart-type
+      const variance = groupSizes.reduce((sum, size) => sum + Math.pow(size - avgPerGroup, 2), 0) / groupSizes.length;
+      const stdDev = Math.sqrt(variance);
+      
+      return {
+        totalStudents,
+        avgPerGroup,
+        femaleRatio,
+        stdDev
+      };
+    },
+    
+    // Chargement du contenu des étapes
+    loadStepContent(step) {
+      console.log('📄 Chargement du contenu de l\'étape', step);
+      const stepContent = document.getElementById('stepContent');
+      if (!stepContent) return;
+      
+      switch(step) {
+        case 1:
+          stepContent.innerHTML = this.getStep1Content();
+          break;
+        case 2:
+          stepContent.innerHTML = this.getStep2Content();
+          break;
+        case 3:
+          stepContent.innerHTML = this.getStep3Content();
+          break;
+        case 4:
+          stepContent.innerHTML = this.getStep4Content();
+          this.initializeDragAndDrop();
+          break;
+      }
+      
+      // Toujours mettre à jour l'état des boutons après le chargement
+      setTimeout(() => {
+        this.updateStepDisplay();
+      }, 50);
+    },
+    
+    // Sélection du type de groupe
+    selectGroupType(type) {
+      console.log('🎯 Sélection du type de groupe:', type);
+      this.groupType = type;
+      
+      // Réinitialiser les sélections
+      this.selectedClasses = [];
+      this.generatedGroups = [];
+      
+      this.loadStepContent(1);
+      this.updateStepDisplay();
+    },
+    
+    // Sélection de la langue
+    selectLanguage(lang) {
+      console.log('🎯 Sélection de la langue:', lang);
+      this.selectedLanguage = lang;
+      
+      // Rafraîchir l'interface pour montrer les élèves filtrés
+      this.loadStepContent(2);
+      this.updateStepDisplay();
+      
+      // Log pour debug
+      const filteredStudents = this.getFilteredStudents();
+      console.log(`📊 ${filteredStudents.length} élèves trouvés pour la langue ${lang}`);
+      
+      // Afficher un message de confirmation
+      this.showMessage(`Langue ${lang} sélectionnée - ${filteredStudents.length} élèves disponibles`, 'info');
+    },
+    
+    // Sélection de la matière
+    selectSubject(subject) {
+      this.selectedSubject = subject;
+      this.loadStepContent(2);
+    },
+    
+    // Sélection du type de distribution
+    selectDistributionType(type) {
+      this.selectedDistributionType = type;
+      this.loadStepContent(2);
+    },
+    
+    // Changement du nombre de groupes
+    changeNumGroups(delta) {
+      const newValue = this.numGroups + delta;
+      if (newValue >= 2 && newValue <= 8) {
+        this.numGroups = newValue;
+        this.loadStepContent(2);
+      }
+    },
+    
+    updateNumGroups(value) {
+      const num = parseInt(value);
+      if (num >= 2 && num <= 8) {
+        this.numGroups = num;
+      }
+    },
+    
+  
+    
+  
+    
+    // Génération des groupes
+    generateGroups() {
+      this.showMessage('Génération des groupes en cours...', 'info');
+      
+      // Génération locale au lieu d'appeler le serveur
+      setTimeout(() => {
+        try {
+          if (this.groupType === 'language') {
+            this.generateLanguageGroups();
+          } else {
+            this.generateNeedsGroups();
+          }
+          
+          this.showMessage('Groupes générés avec succès !', 'success');
+          this.loadStepContent(3);
+        } catch (error) {
+          console.error('Erreur lors de la génération:', error);
+          this.showMessage('Erreur lors de la génération des groupes', 'error');
+        }
+      }, 500);
+    },
+    
+    // Génération des groupes de langues
+    generateLanguageGroups() {
+      console.log('🚀 generateLanguageGroups appelée');
+      const students = this.getFilteredStudents();
+      console.log('🚀 Élèves filtrés reçus:', students.length);
+      const groupSize = Math.ceil(students.length / this.numGroups);
+      
+      this.generatedGroups = [];
+      
+      // Trier par score PART décroissant
+      students.sort((a, b) => (b.part || 0) - (a.part || 0));
+      
+      // Créer les groupes
+      for (let i = 0; i < this.numGroups; i++) {
+        this.generatedGroups.push({
+          name: `${this.selectedLanguage} - Groupe ${i + 1}`,
+          students: []
+        });
+      }
+      
+      // Répartir les élèves en serpentin pour équilibrer
+      students.forEach((student, index) => {
+        const groupIndex = index % this.numGroups;
+        this.generatedGroups[groupIndex].students.push(student.id);
+      });
+    },
+    
+    // Génération des groupes de besoins
+    generateNeedsGroups() {
+      const students = this.getFilteredStudents();
+      
+      // Calculer le score composite selon la matière
+      students.forEach(student => {
+        if (this.selectedSubject === 'Both') {
+          student.compositeScore = ((student.scores?.M || 0) + (student.scores?.F || 0)) / 2;
+        } else if (this.selectedSubject === 'Maths') {
+          student.compositeScore = student.scores?.M || 0;
+        } else {
+          student.compositeScore = student.scores?.F || 0;
+        }
+      });
+      
+      // Trier par score
+      students.sort((a, b) => b.compositeScore - a.compositeScore);
+      
+      this.generatedGroups = [];
+      
+      // Créer les groupes
+      for (let i = 0; i < this.numLevelGroups; i++) {
+        this.generatedGroups.push({
+          name: `Niveau ${i + 1}`,
+          students: []
+        });
+      }
+      
+      if (this.selectedDistributionType === 'homogeneous') {
+        // Groupes homogènes : regrouper par niveau similaire
+        const groupSize = Math.ceil(students.length / this.numLevelGroups);
+        students.forEach((student, index) => {
+          const groupIndex = Math.floor(index / groupSize);
+          if (groupIndex < this.numLevelGroups) {
+            this.generatedGroups[groupIndex].students.push(student.id);
+          }
+        });
+      } else {
+        // Groupes hétérogènes : utiliser l'algorithme amélioré
+        this.generateHeterogeneousGroups(students);
+        return; // Sortir car generateHeterogeneousGroups() gère déjà la création des groupes
+      }
+    },
+    
+    // Régénération des groupes
+    regenerateGroups() {
+      this.generateGroups();
+    },
+    
+    // Initialisation du drag & drop
+    initializeDragAndDrop() {
+      // Attendre que le DOM soit prêt
+      setTimeout(() => {
+        this.generatedGroups.forEach((group, index) => {
+          const container = document.getElementById(`group-${index}`);
+          if (container && typeof Sortable !== 'undefined') {
+            new Sortable(container, {
+              group: 'students',
+              animation: 150,
+              ghostClass: 'sortable-ghost',
+              dragClass: 'sortable-drag',
+              onEnd: (evt) => {
+                this.handleStudentMove(evt);
+              }
+            });
+          }
+        });
+      }, 100);
+    },
+    
+    // Gestion du déplacement d'un élève
+    handleStudentMove(evt) {
+      const studentId = evt.item.getAttribute('data-student-id');
+      const fromGroupIndex = parseInt(evt.from.id.replace('group-', ''));
+      const toGroupIndex = parseInt(evt.to.id.replace('group-', ''));
+      
+      if (fromGroupIndex !== toGroupIndex) {
+        // Retirer l'élève du groupe source
+        const fromGroup = this.generatedGroups[fromGroupIndex];
+        const studentIndex = fromGroup.students.indexOf(studentId);
+        if (studentIndex > -1) {
+          fromGroup.students.splice(studentIndex, 1);
+        }
+        
+        // Ajouter l'élève au groupe destination
+        const toGroup = this.generatedGroups[toGroupIndex];
+        toGroup.students.push(studentId);
+        
+        // Mettre à jour les statistiques
+        const statsPanel = document.querySelector('.stats-panel');
+        if (statsPanel) {
+          statsPanel.innerHTML = this.renderGroupStats();
+        }
+        
+        // Mettre à jour les compteurs
+        this.updateGroupCounts();
+      }
+    },
+    
+    // Mise à jour des compteurs de groupes
+    updateGroupCounts() {
+      this.generatedGroups.forEach((group, index) => {
+        const countElement = document.querySelector(`[data-group-index="${index}"] .group-count`);
+        if (countElement) {
+          countElement.textContent = `${group.students.length} élèves`;
+        }
+      });
+    },
+    
+    // Obtenir les élèves filtrés
+    getFilteredStudents() {
+      const allStudents = this.getAvailableStudents();
+      
+      console.log('🔍 DEBUG getFilteredStudents - Début');
+      console.log('🔍 DEBUG - allStudents.length:', allStudents.length);
+      console.log('🔍 DEBUG - selectedClasses:', this.selectedClasses);
+      console.log('🔍 DEBUG - groupType:', this.groupType);
+      console.log('🔍 DEBUG - selectedLanguage:', this.selectedLanguage);
+      
+      // Afficher les 5 premiers élèves pour debug
+      console.log('🔍 DEBUG - 5 premiers élèves:');
+      allStudents.slice(0, 5).forEach((student, index) => {
+        console.log(`  ${index + 1}. ${student.nom} ${student.prenom} - classe: ${student.classe}, lv2: "${student.lv2}"`);
+      });
+      
+      const filtered = allStudents.filter(student => {
+        // Filtrer par classe
+        if (!this.selectedClasses.includes(student.classe)) {
+          return false;
+        }
+        
+        // Filtrer par langue si groupes de langues
+        if (this.groupType === 'language') {
+          // Utiliser la langue stockée dans lv2 (colonne F)
+          const langue = student.lv2 || '';
+          
+          console.log(`🔍 Filtrage élève ${student.nom}: langue="${langue}", selectedLanguage="${this.selectedLanguage}"`);
+          
+          // Logique corrigée pour ESP/ITA
+          if (this.selectedLanguage === 'ITA') {
+            const isITA = langue === 'ITA';
+            console.log(`  → ITA check: "${langue}" === "ITA" = ${isITA}`);
+            return isITA;
+          } else if (this.selectedLanguage === 'ESP') {
+            // Pour ESP : inclure ESP explicite ET les valeurs vides (par défaut)
+            const isESP = langue === 'ESP' || langue === '' || !langue || langue === null;
+            console.log(`  → ESP check: "${langue}" (ESP ou vide) = ${isESP}`);
+            return isESP;
+          }
+        }
+        
+        return true;
+      });
+      
+      console.log('🔍 DEBUG getFilteredStudents - Fin');
+      console.log('🔍 DEBUG - Élèves filtrés:', filtered.length);
+      
+      return filtered;
+    },
+    
+    
+    // Obtenir les classes disponibles
+    getAvailableClasses() {
+      // a. Cache déjà alimenté par l'appel asynchrone précédent
+      if (Array.isArray(this.availableClasses) && this.availableClasses.length) {
+        console.log('📋 Classes depuis cache :', this.availableClasses);
+        return this.availableClasses;
+      }
+  
+      // b. Demande au backend (Apps Script)
+      if (typeof google !== 'undefined' &&
+          google.script &&
+          google.script.run) {
+  
+        console.log('🔄 Appel getINTClasses()...');
+        google.script.run
+          .withSuccessHandler((classes) => {
+            console.log('📋 Réponse getINTClasses :', classes);
+            this.availableClasses = classes || [];
+            // On rafraîchit la page courante dès que ça arrive
+            this.loadStepContent(this.currentStep);
+          })
+          .withFailureHandler((err) => {
+            console.error('❌ getINTClasses :', err);
+            this.showMessage('Impossible de charger les classes', 'error');
+          })
+          .getINTClasses();               // ← fonction serveur
+      } else {
+        console.warn('⚠️ google.script.run non disponible');
+      }
+  
+      // c. En attendant → tableau vide
+      return [];
+    },
+    
+    // Aperçu des groupes
+    previewGroups() {
+      const students = this.getAvailableStudents();
+      
+      let content = '<div class="preview-content space-y-4">';
+      
+      this.generatedGroups.forEach(group => {
+        content += `
+          <div class="group-preview-section">
+            <h4 class="font-bold text-lg mb-2">${group.name}</h4>
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-gray-100">
+                  <th class="p-2 text-left">Nom</th>
+                  <th class="p-2 text-left">Prénom</th>
+                  <th class="p-2 text-center">Sexe</th>
+                  <th class="p-2 text-center">Langue</th>
+                  <th class="p-2 text-center">COM</th>
+                  <th class="p-2 text-center">TRA</th>
+                  <th class="p-2 text-center">PART</th>
+                  ${this.groupType === 'needs' ? '<th class="p-2 text-center">Maths</th><th class="p-2 text-center">Français</th>' : ''}
+                </tr>
+              </thead>
+              <tbody>
+        `;
+        
+        group.students.forEach(studentId => {
+          const student = students.find(s => s.id === studentId);
+          const colorClass = this.getStudentColorClass(student);
+          if (student) {
+            // Badge de langue
+            const langueBadge = student.lv2Badge || student.lv2 || '';
+            const badgeClass = langueBadge.includes('par défaut') ? 'bg-blue-100 text-blue-800' : 
+                              langueBadge === 'ITA' ? 'bg-green-100 text-green-800' : 
+                              'bg-purple-100 text-purple-800';
+            
+            content += `
+              <tr class="border-b">
+                <td class="p-2">
+                  <span class="${colorClass}">${student.nom}</span>
+                </td>
+                <td class="p-2">
+                  <span class="${colorClass}">${student.prenom}</span>
+                </td>
+                <td class="p-2 text-center">
+                  <i class="fas fa-user ${student.sexe === 'F' ? 'text-pink-500' : 'text-blue-500'}"></i>
+                </td>
+                <td class="p-2 text-center">
+                  <span class="px-2 py-1 text-xs rounded-full ${badgeClass}">${langueBadge}</span>
+                </td>
+                <td class="p-2 text-center">${student.com || 0}</td>
+                <td class="p-2 text-center">${student.tra || 0}</td>
+                <td class="p-2 text-center">${student.part || 0}</td>
+                ${this.groupType === 'needs' ? `
+                  <td class="p-2 text-center">${student.scores?.M || 0}</td>
+                  <td class="p-2 text-center">${student.scores?.F || 0}</td>
+                ` : ''}
+              </tr>
+            `;
+          }
+        });
+        
+        content += '</tbody></table></div>';
+      });
+      
+      content += '</div>';
+      
+      this.createModal(content, {
+        title: 'Aperçu des groupes',
+        size: 'large'
+      });
+    },
+    
+    // Sauvegarde des groupes (PATCH ISOLATION)
+    saveGroups() {
+      if (confirm('Êtes-vous sûr de vouloir enregistrer ces groupes définitivement ?')) {
+        this.showMessage('Enregistrement en cours...', 'info');
+        if (window.google && window.google.script && window.google.script.run) {
+          // Préparer les données AVEC les infos élèves incluses
+          const saveData = {
+            type: this.groupType,
+            groups: this.generatedGroups.map(group => ({
+              ...group,
+              studentData: group.students.map(studentId => {
+                const student = this.getAvailableStudents().find(s => s.id === studentId);
+                return student ? {
+                  id: student.id,
+                  nom: student.nom,
+                  prenom: student.prenom,
+                  sexe: student.sexe,
+                  classe: student.classe,
+                  lv2: student.lv2,
+                  scores: student.scores
+                } : { id: studentId };
+              })
+            })),
+            config: {
+              language: this.selectedLanguage,
+              subject: this.selectedSubject,
+              distributionType: this.selectedDistributionType,
+              classes: this.selectedClasses
+            },
+            timestamp: new Date().toISOString()
+          };
+          google.script.run
+            .withSuccessHandler(() => {
+              this.showMessage('Groupes enregistrés avec succès !', 'success');
+              if (window.opener && window.opener.notifyGroupsChanged) {
+                window.opener.notifyGroupsChanged();
+              }
+              setTimeout(() => {
+                if (confirm('Voulez-vous exporter les groupes ?')) {
+                  this.exportGroups();
+                }
+              }, 1000);
+            })
+            .withFailureHandler((error) => {
+              this.showMessage('Erreur lors de l\'enregistrement : ' + error, 'error');
+            })
+            .saveGroups_ISOLATED(saveData); // Utilise la fonction isolée
+        } else {
+          this.showMessage('Groupes enregistrés avec succès ! (mode test)', 'success');
+        }
+      }
+    },
+    
+    // Export des groupes
+    exportGroups() {
+      const students = this.getAvailableStudents();
+      
+      // Créer le CSV avec point-virgule comme séparateur (compatible Excel FR)
+      let csv = 'Groupe;Nom;Prénom;Sexe;Classe d\'origine;Langue';
+      if (this.groupType === 'needs') {
+        csv += ';Score Maths;Score Français;Score COM;Score TRA;Score PART;Score ABS';
+      } else {
+        csv += ';Score COM;Score TRA;Score PART;Score ABS;Score Maths;Score Français';
+      }
+      csv += '\n';
+      
+      this.generatedGroups.forEach(group => {
+        group.students.forEach(studentId => {
+          const student = students.find(s => s.id === studentId);
+          if (student) {
+            // Construire la ligne sans guillemets inutiles
+            let line = [
+              group.name,
+              student.nom || '',
+              student.prenom || '',
+              student.sexe || '',
+              student.classe || '',
+              student.lv2Badge || student.lv2 || '' // Badge de langue ou valeur brute
+            ];
+            
+            if (this.groupType === 'needs') {
+              line.push(
+                student.scores?.M || 0,
+                student.scores?.F || 0,
+                student.com || 0,
+                student.tra || 0,
+                student.part || 0,
+                student.abs || 0
+              );
+            } else {
+              line.push(
+                student.com || 0,
+                student.tra || 0,
+                student.part || 0,
+                student.abs || 0,
+                student.scores?.M || 0,
+                student.scores?.F || 0
+              );
+            }
+            
+            // Joindre avec point-virgule
+            csv += line.join(';') + '\n';
+          }
+        });
+      });
+      
+      // Télécharger le fichier avec nom plus descriptif
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      const timestamp = new Date().toISOString().split('T')[0];
+      link.download = `groupes_${this.groupType}_${this.selectedClasses.join('_')}_${timestamp}.csv`;
+      link.click();
+      
+      this.showMessage('Export CSV généré avec succès', 'success');
+    },
+    
+    // Gestion du gestionnaire de groupes
+    loadGroupsManager() {
+      const contentDiv = document.getElementById('groupsManagerContent');
+      if (!contentDiv) return;
+      
+      contentDiv.innerHTML = `
+        <div class="space-y-6">
+          <div class="flex justify-between items-center">
+            <h3 class="text-lg font-bold">Groupes existants</h3>
+            <button class="btn btn-primary" onclick="GroupsUI.refreshGroups()">
+              <i class="fas fa-sync-alt"></i> Actualiser
+            </button>
+          </div>
+          
+          <div id="existingGroups">
+            <div class="text-center py-8">
+              <i class="fas fa-spinner fa-spin text-4xl text-gray-400"></i>
+              <p class="mt-2 text-gray-600">Chargement des groupes...</p>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      this.loadExistingGroups();
+    },
+    
+    // Chargement des groupes existants
+    loadExistingGroups() {
+      const groupsDiv = document.getElementById('existingGroups');
+      if (!groupsDiv) return;
+      
+      // Appel au serveur pour récupérer les groupes existants
+      if (typeof google !== 'undefined' &&
+          google.script &&
+          google.script.run) {
+        
+        google.script.run
+          .withSuccessHandler((existingGroups) => {
+            if (!Array.isArray(existingGroups)) {
+              existingGroups = [];
+            }
+            
+            if (existingGroups.length === 0) {
+              groupsDiv.innerHTML = `
+                <div class="message info">
+                  <i class="fas fa-info-circle mr-2"></i>
+                  Aucun groupe sauvegardé. Créez des groupes dans l'onglet "Créer des groupes".
+                </div>
+              `;
+            } else {
+              groupsDiv.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  ${existingGroups.map(group => `
+                    <div class="group-card">
+                      <div class="flex justify-between items-start mb-3">
+                        <div>
+                          <h4 class="font-bold">${group.name}</h4>
+                          <p class="text-sm text-gray-600">${group.count} élèves</p>
+                        </div>
+                        <span class="badge ${group.type === 'language' ? 'badge-blue' : 'badge-purple'}">
+                          ${group.type === 'language' ? 'Langues' : 'Besoins'}
+                        </span>
+                      </div>
+                      <p class="text-xs text-gray-500 mb-3">
+                        Créé le ${new Date(group.created).toLocaleDateString('fr-FR')}
+                      </p>
+                      <div class="flex gap-2">
+                        <button class="btn btn-sm btn-secondary" onclick="GroupsUI.editGroup('${group.id}')">
+                          <i class="fas fa-edit"></i> Modifier
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="GroupsUI.deleteGroup('${group.id}')">
+                          <i class="fas fa-trash"></i> Supprimer
+                        </button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              `;
+            }
+          })
+          .withFailureHandler((error) => {
+            console.error('Erreur chargement groupes existants:', error);
+            groupsDiv.innerHTML = `
+              <div class="message error">
+                <i class="fas fa-exclamation-circle mr-2"></i>
+                Erreur lors du chargement des groupes existants
+              </div>
+            `;
+          })
+          .getAllGroups();
+      } else {
+        groupsDiv.innerHTML = `
+          <div class="message error">
+            <i class="fas fa-exclamation-circle mr-2"></i>
+            Connexion Apps Script introuvable
+          </div>
+        `;
+      }
+    },
+    
+  
+    
+    // Fonctions utilitaires
+    showMessage(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg ${
+        type === 'error' ? 'bg-red-500 text-white' :
+        type === 'success' ? 'bg-green-500 text-white' :
+        type === 'warning' ? 'bg-yellow-500 text-white' :
+        'bg-blue-500 text-white'
+      }`;
+      toast.innerHTML = `
+        <div class="flex items-center gap-2">
+          <i class="fas ${
+            type === 'error' ? 'fa-exclamation-circle' :
+            type === 'success' ? 'fa-check-circle' :
+            type === 'warning' ? 'fa-exclamation-triangle' :
+            'fa-info-circle'
+          }"></i>
+          <span>${message}</span>
+        </div>
+      `;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.remove();
+      }, 3000);
+    },
+    
+    createModal(content, options = {}) {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50';
+      modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-6 ${options.size === 'large' ? 'max-w-6xl' : 'max-w-4xl'} w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">${options.title || 'Détails'}</h2>
+            <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times text-xl"></i>
+            </button>
+          </div>
+          ${content}
+        </div>
+      `;
+      document.body.appendChild(modal);
+    },
+    
+    // Statistiques avancées
+    showStats() {
+      if (this.generatedGroups.length === 0) {
+        this.showMessage('Aucun groupe à analyser', 'warning');
+        return;
+      }
+      
+      const stats = this.calculateDetailedStats();
+      
+      const content = `
+        <div class="space-y-6">
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            ${Object.entries(stats.global).map(([key, value]) => `
+              <div class="stat-card">
+                <div class="stat-label">${this.getStatLabel(key)}</div>
+                <div class="stat-value">${value}</div>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div class="chart-container">
+            <canvas id="groupsChart"></canvas>
+          </div>
+          
+          <div class="detailed-stats">
+            <h4 class="font-bold mb-3">Détails par groupe</h4>
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-100">
+                  <th class="p-2 text-left">Groupe</th>
+                  <th class="p-2 text-center">Effectif</th>
+                  <th class="p-2 text-center">% Filles</th>
+                  <th class="p-2 text-center">Moy. COM</th>
+                  <th class="p-2 text-center">Moy. TRA</th>
+                  <th class="p-2 text-center">Moy. PART</th>
+                  ${this.groupType === 'needs' ? '<th class="p-2 text-center">Moy. Maths</th><th class="p-2 text-center">Moy. Français</th>' : ''}
+                </tr>
+              </thead>
+              <tbody>
+                ${stats.byGroup.map(group => `
+                  <tr class="border-b">
+                    <td class="p-2">${group.name}</td>
+                    <td class="p-2 text-center">${group.count}</td>
+                    <td class="p-2 text-center">${group.femalePercent}%</td>
+                    <td class="p-2 text-center">${group.avgCOM}</td>
+                    <td class="p-2 text-center">${group.avgTRA}</td>
+                    <td class="p-2 text-center">${group.avgPART}</td>
+                    ${this.groupType === 'needs' ? `
+                      <td class="p-2 text-center">${group.avgMaths}</td>
+                      <td class="p-2 text-center">${group.avgFrancais}</td>
+                    ` : ''}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+      
+      this.createModal(content, {
+        title: 'Statistiques détaillées',
+        size: 'large'
+      });
+      
+      // Créer le graphique après l'ajout au DOM
+      setTimeout(() => {
+        this.createGroupsChart(stats);
+      }, 100);
+    },
+    
+    calculateDetailedStats() {
+      const students = this.getAvailableStudents();
+      const stats = {
+        global: {
+          totalStudents: 0,
+          totalGroups: this.generatedGroups.length,
+          avgPerGroup: 0,
+          femaleRatio: 0,
+          avgCOM: 0,
+          avgTRA: 0,
+          avgPART: 0,
+          avgABS: 0,
+          avgMaths: 0,
+          avgFrancais: 0
+        },
+        byGroup: []
+      };
+      
+      let totalFemales = 0;
+      let totalCOM = 0, totalTRA = 0, totalPART = 0, totalABS = 0;
+      let totalMaths = 0, totalFrancais = 0;
+      
+      this.generatedGroups.forEach(group => {
+        let groupStats = {
+          name: group.name,
+          count: group.students.length,
+          females: 0,
+          males: 0,
+          totalScore: 0,
+          avgScore: 0,
+          femalePercent: 0,
+          avgCOM: 0,
+          avgTRA: 0,
+          avgPART: 0,
+          avgABS: 0,
+          avgMaths: 0,
+          avgFrancais: 0
+        };
+        
+        let groupCOM = 0, groupTRA = 0, groupPART = 0, groupABS = 0;
+        let groupMaths = 0, groupFrancais = 0;
+        
+        group.students.forEach(studentId => {
+          const student = students.find(s => s.id === studentId);
+          if (student) {
+            stats.global.totalStudents++;
+            
+            if (student.sexe === 'F') {
+              groupStats.females++;
+              totalFemales++;
+            } else {
+              groupStats.males++;
+            }
+            
+            // Scores selon le type
+            if (this.groupType === 'language') {
+              groupStats.totalScore += student.part || 0;
+            } else {
+              groupStats.totalScore += student.compositeScore || 0;
+            }
+            
+            // Tous les scores pour statistiques
+            groupCOM += student.com || 0;
+            groupTRA += student.tra || 0;
+            groupPART += student.part || 0;
+            groupABS += student.abs || 0;
+            groupMaths += student.scores?.M || 0;
+            groupFrancais += student.scores?.F || 0;
+            
+            totalCOM += student.com || 0;
+            totalTRA += student.tra || 0;
+            totalPART += student.part || 0;
+            totalABS += student.abs || 0;
+            totalMaths += student.scores?.M || 0;
+            totalFrancais += student.scores?.F || 0;
+          }
+        });
+        
+        // Moyennes par groupe
+        if (groupStats.count > 0) {
+          groupStats.avgScore = groupStats.totalScore / groupStats.count;
+          groupStats.femalePercent = Math.round((groupStats.females / groupStats.count) * 100);
+          groupStats.avgCOM = groupCOM / groupStats.count;
+          groupStats.avgTRA = groupTRA / groupStats.count;
+          groupStats.avgPART = groupPART / groupStats.count;
+          groupStats.avgABS = groupABS / groupStats.count;
+          groupStats.avgMaths = groupMaths / groupStats.count;
+          groupStats.avgFrancais = groupFrancais / groupStats.count;
+        }
+        
+        stats.byGroup.push(groupStats);
+      });
+      
+      // Moyennes globales
+      if (stats.global.totalStudents > 0) {
+        stats.global.avgPerGroup = Math.round(stats.global.totalStudents / stats.global.totalGroups);
+        stats.global.femaleRatio = Math.round((totalFemales / stats.global.totalStudents) * 100) + '%';
+        stats.global.avgCOM = totalCOM / stats.global.totalStudents;
+        stats.global.avgTRA = totalTRA / stats.global.totalStudents;
+        stats.global.avgPART = totalPART / stats.global.totalStudents;
+        stats.global.avgABS = totalABS / stats.global.totalStudents;
+        stats.global.avgMaths = totalMaths / stats.global.totalStudents;
+        stats.global.avgFrancais = totalFrancais / stats.global.totalStudents;
+      }
+      
+      return stats;
+    },
+    
+    getStatLabel(key) {
+      const labels = {
+        totalStudents: 'Total élèves',
+        totalGroups: 'Nombre de groupes',
+        avgPerGroup: 'Moyenne/groupe',
+        femaleRatio: 'Ratio F/M'
+      };
+      return labels[key] || key;
+    },
+    
+    createGroupsChart(stats) {
+      const ctx = document.getElementById('groupsChart');
+      if (!ctx || typeof Chart === 'undefined') return;
+      
+      // Couleurs pour chaque type de score
+      const colors = {
+        effectif: 'rgba(59, 130, 246, 0.5)',
+        effectifBorder: 'rgb(59, 130, 246)',
+        com: 'rgba(239, 68, 68, 0.5)',
+        comBorder: 'rgb(239, 68, 68)',
+        tra: 'rgba(245, 158, 11, 0.5)',
+        traBorder: 'rgb(245, 158, 11)',
+        part: 'rgba(16, 185, 129, 0.5)',
+        partBorder: 'rgb(16, 185, 129)',
+        abs: 'rgba(107, 114, 128, 0.5)',
+        absBorder: 'rgb(107, 114, 128)',
+        maths: 'rgba(147, 51, 234, 0.5)',
+        mathsBorder: 'rgb(147, 51, 234)',
+        francais: 'rgba(236, 72, 153, 0.5)',
+        francaisBorder: 'rgb(236, 72, 153)'
+      };
+      
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: stats.byGroup.map(g => g.name),
+                datasets: (() => {
+        const datasets = [
+          {
+            label: 'Effectif',
+            data: stats.byGroup.map(g => g.count),
+            backgroundColor: colors.effectif,
+            borderColor: colors.effectifBorder,
+            borderWidth: 1,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Moy. COM',
+            data: stats.byGroup.map(g => g.avgCOM),
+            backgroundColor: colors.com,
+            borderColor: colors.comBorder,
+            borderWidth: 1,
+            yAxisID: 'y1'
+          },
+          {
+            label: 'Moy. TRA',
+            data: stats.byGroup.map(g => g.avgTRA),
+            backgroundColor: colors.tra,
+            borderColor: colors.traBorder,
+            borderWidth: 1,
+            yAxisID: 'y1'
+          },
+          {
+            label: 'Moy. PART',
+            data: stats.byGroup.map(g => g.avgPART),
+            backgroundColor: colors.part,
+            borderColor: colors.partBorder,
+            borderWidth: 1,
+            yAxisID: 'y1'
+          },
+          {
+            label: 'Moy. ABS',
+            data: stats.byGroup.map(g => g.avgABS),
+            backgroundColor: colors.abs,
+            borderColor: colors.absBorder,
+            borderWidth: 1,
+            yAxisID: 'y1'
+          }
+        ];
+        
+        if (this.groupType === 'needs') {
+          datasets.push(
+            {
+              label: 'Moy. Maths',
+              data: stats.byGroup.map(g => g.avgMaths),
+              backgroundColor: colors.maths,
+              borderColor: colors.mathsBorder,
+              borderWidth: 1,
+              yAxisID: 'y1'
+            },
+            {
+              label: 'Moy. Français',
+              data: stats.byGroup.map(g => g.avgFrancais),
+              backgroundColor: colors.francais,
+              borderColor: colors.francaisBorder,
+              borderWidth: 1,
+              yAxisID: 'y1'
+            }
+          );
+        }
+        
+        return datasets;
+      })()
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                usePointStyle: true,
+                padding: 20
+              }
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          },
+          scales: {
+            y: {
+              type: 'linear',
+              display: true,
+              position: 'left',
+              title: {
+                display: true,
+                text: 'Effectif'
+              }
+            },
+            y1: {
+              type: 'linear',
+              display: true,
+              position: 'right',
+              title: {
+                display: true,
+                text: 'Scores moyens'
+              },
+              grid: {
+                drawOnChartArea: false
+              },
+              min: 0,
+              max: 4
+            }
+          }
+        }
+      });
+    },
+    
+    // Toggle auto-sauvegarde
+    toggleAutoSave() {
+      this.autoSaveEnabled = !this.autoSaveEnabled;
+      const btn = document.getElementById('btnAutoSave');
+      if (btn) {
+        if (this.autoSaveEnabled) {
+          btn.classList.add('active');
+          btn.innerHTML = '<i class="fas fa-shield-alt"></i> Auto-sauvegarde ON';
+          this.showMessage('Auto-sauvegarde activée', 'success');
+        } else {
+          btn.classList.remove('active');
+          btn.innerHTML = '<i class="fas fa-shield-alt"></i> Auto-sauvegarde OFF';
+          this.showMessage('Auto-sauvegarde désactivée', 'warning');
+        }
+      }
+    },
+    
+    // Afficher l'aide
+    showHelp() {
+      const content = `
+        <div class="help-content space-y-4">
+          <div class="help-section">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-language text-blue-600"></i>
+              Groupes de langues
+            </h4>
+            <p class="text-sm text-gray-600">
+              Permet de créer des groupes d'élèves selon leur langue vivante (ESP ou ITA).
+              La répartition priorise le score PART tout en équilibrant les sexes.
+            </p>
+          </div>
+          
+          <div class="help-section">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-chart-line text-purple-600"></i>
+              Groupes de besoins
+            </h4>
+            <p class="text-sm text-gray-600">
+              Crée des groupes basés sur les scores en Maths et/ou Français.
+              Possibilité de groupes homogènes (niveaux similaires) ou hétérogènes (niveaux mélangés).
+            </p>
+          </div>
+          
+          <div class="help-section">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-hand-pointer text-green-600"></i>
+              Ajustements manuels
+            </h4>
+            <p class="text-sm text-gray-600">
+              Après la génération automatique, vous pouvez déplacer les élèves entre groupes
+              par glisser-déposer pour affiner la répartition.
+            </p>
+          </div>
+        </div>
+      `;
+      
+      this.createModal(content, {
+        title: 'Aide - Gestionnaire de groupes'
+      });
+    },
+    
+    // AJOUT : Fonction de coloriage COM manquante
+    getStudentColorClass(student) {
+      const comScore = parseInt(student.com) || 0;
+      switch (comScore) {
+        case 1: return "text-red-600 font-semibold";
+        case 2: return "text-orange-500 font-medium";
+        case 3: return "text-green-500";
+        case 4: return "text-green-900 font-bold";
+        default: return "text-gray-700";
+      }
+    },
+    
+    // CORRECTION : Arrondir les stats à 1 décimale maximum
+    calculateDetailedStats() {
+      const students = this.getAvailableStudents();
+      const stats = {
+        global: {
+          totalStudents: 0,
+          totalGroups: this.generatedGroups.length,
+          avgPerGroup: 0,
+          femaleRatio: 0,
+          avgCOM: 0,
+          avgTRA: 0,
+          avgPART: 0,
+          avgABS: 0,
+          avgMaths: 0,
+          avgFrancais: 0
+        },
+        byGroup: []
+      };
+      
+      let totalFemales = 0;
+      let totalCOM = 0, totalTRA = 0, totalPART = 0, totalABS = 0;
+      let totalMaths = 0, totalFrancais = 0;
+      
+      this.generatedGroups.forEach(group => {
+        let groupStats = {
+          name: group.name,
+          count: group.students.length,
+          females: 0,
+          males: 0,
+          totalScore: 0,
+          avgScore: 0,
+          femalePercent: 0,
+          avgCOM: 0,
+          avgTRA: 0,
+          avgPART: 0,
+          avgABS: 0,
+          avgMaths: 0,
+          avgFrancais: 0
+        };
+        
+        let groupCOM = 0, groupTRA = 0, groupPART = 0, groupABS = 0;
+        let groupMaths = 0, groupFrancais = 0;
+        
+        group.students.forEach(studentId => {
+          const student = students.find(s => s.id === studentId);
+          if (student) {
+            stats.global.totalStudents++;
+            
+            if (student.sexe === 'F') {
+              groupStats.females++;
+              totalFemales++;
+            } else {
+              groupStats.males++;
+            }
+            
+            // Scores selon le type
+            if (this.groupType === 'language') {
+              groupStats.totalScore += student.part || 0;
+            } else {
+              groupStats.totalScore += student.compositeScore || 0;
+            }
+            
+            // Tous les scores pour statistiques
+            groupCOM += student.com || 0;
+            groupTRA += student.tra || 0;
+            groupPART += student.part || 0;
+            groupABS += student.abs || 0;
+            groupMaths += student.scores?.M || 0;
+            groupFrancais += student.scores?.F || 0;
+            
+            totalCOM += student.com || 0;
+            totalTRA += student.tra || 0;
+            totalPART += student.part || 0;
+            totalABS += student.abs || 0;
+            totalMaths += student.scores?.M || 0;
+            totalFrancais += student.scores?.F || 0;
+          }
+        });
+        
+        // Moyennes par groupe - ARRONDIES À 1 DÉCIMALE
+        if (groupStats.count > 0) {
+          groupStats.avgScore = Math.round((groupStats.totalScore / groupStats.count) * 10) / 10;
+          groupStats.femalePercent = Math.round((groupStats.females / groupStats.count) * 100);
+          groupStats.avgCOM = Math.round((groupCOM / groupStats.count) * 10) / 10;
+          groupStats.avgTRA = Math.round((groupTRA / groupStats.count) * 10) / 10;
+          groupStats.avgPART = Math.round((groupPART / groupStats.count) * 10) / 10;
+          groupStats.avgABS = Math.round((groupABS / groupStats.count) * 10) / 10;
+          groupStats.avgMaths = Math.round((groupMaths / groupStats.count) * 10) / 10;
+          groupStats.avgFrancais = Math.round((groupFrancais / groupStats.count) * 10) / 10;
+        }
+        
+        stats.byGroup.push(groupStats);
+      });
+      
+      // Moyennes globales - ARRONDIES À 1 DÉCIMALE
+      if (stats.global.totalStudents > 0) {
+        stats.global.avgPerGroup = Math.round(stats.global.totalStudents / stats.global.totalGroups);
+        stats.global.femaleRatio = Math.round((totalFemales / stats.global.totalStudents) * 100) + '%';
+        stats.global.avgCOM = Math.round((totalCOM / stats.global.totalStudents) * 10) / 10;
+        stats.global.avgTRA = Math.round((totalTRA / stats.global.totalStudents) * 10) / 10;
+        stats.global.avgPART = Math.round((totalPART / stats.global.totalStudents) * 10) / 10;
+        stats.global.avgABS = Math.round((totalABS / stats.global.totalStudents) * 10) / 10;
+        stats.global.avgMaths = Math.round((totalMaths / stats.global.totalStudents) * 10) / 10;
+        stats.global.avgFrancais = Math.round((totalFrancais / stats.global.totalStudents) * 10) / 10;
+      }
+      
+      return stats;
+    },
+    
+    // CORRECTION : Module structure pour ESP (groupes de langues)
+    getLanguageConfigContent() {
+      return `
+        <div class="space-y-6">
+          <h3 class="text-lg font-semibold mb-4">Configuration des groupes de langues</h3>
+          
+          <!-- Sélection de la langue -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Langue à traiter</h4>
+            <div class="flex gap-4">
+              <button class="lang-btn ${this.selectedLanguage === 'ESP' ? 'active' : ''}" onclick="GroupsUI.selectLanguage('ESP')">
+                <i class="fas fa-flag"></i> Espagnol (ESP)
+              </button>
+              <button class="lang-btn ${this.selectedLanguage === 'ITA' ? 'active' : ''}" onclick="GroupsUI.selectLanguage('ITA')">
+                <i class="fas fa-flag"></i> Italien (ITA)
+              </button>
+            </div>
+            <div class="mt-2 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+              <i class="fas fa-info-circle mr-2"></i>
+              <strong>Note :</strong> Pour les groupes ESP, le système inclut automatiquement les élèves avec "ESP" en colonne F ET ceux avec une valeur vide (ESP par défaut).
+            </div>
+          </div>
+          
+          <!-- Structure flexible avec passes pour langues -->
+          <div class="config-section">
+            <h4 class="font-medium mb-3">Définition de la structure</h4>
+            
+            <!-- Message d'aide -->
+            ${this.passes.length === 0 ? `
+              <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4">
+                <div class="flex">
+                  <div class="flex-shrink-0">
+                    <i class="fas fa-info-circle text-blue-400"></i>
+                  </div>
+                  <div class="ml-3">
+                    <p class="text-sm text-blue-700">
+                      <strong>Comment procéder :</strong><br>
+                      1. Sélectionnez les classes à regrouper (1-6 classes)<br>
+                      2. Définissez le nombre de groupes et leurs noms<br>
+                      3. Cliquez sur "Ajouter à la structure"<br>
+                      4. Répétez pour d'autres passes si nécessaire<br>
+                      5. Le bouton "Suivant" se débloquera automatiquement
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ` : ''}
+            
+            <!-- Formulaire inline pour ajouter une passe -->
+            <div class="bg-blue-50 p-4 rounded-lg space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                <!-- Sélection des classes -->
+                <div class="md:col-span-5">
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Classes à regrouper (1-6)
+                  </label>
+                  <div class="flex flex-wrap gap-2" id="passClassSelection">
+                    ${this.renderClassCheckboxes()}
+                  </div>
+                </div>
+                
+                <!-- Nombre de groupes -->
+                <div class="md:col-span-2">
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Nb groupes
+                  </label>
+                  <input type="number" id="passNumGroups" min="1" max="12" value="3" 
+                         class="w-full p-2 border rounded" onchange="GroupsUI.updateGroupNames()">
+                </div>
+                
+                <!-- Noms des groupes -->
+                <div class="md:col-span-4">
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Noms des groupes
+                  </label>
+                  <div id="groupNamesContainer" class="space-y-1">
+                    <!-- Généré dynamiquement -->
+                  </div>
+                </div>
+                
+                <!-- Bouton ajouter avec nommage amélioré -->
+                <div class="md:col-span-1">
+                  <button class="btn btn-primary w-full" onclick="GroupsUI.addPass()" 
+                          title="Ajouter cette configuration à la structure globale">
+                    <i class="fas fa-plus"></i>
+                    <span class="hidden md:inline ml-1">Ajouter</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Modèles suggérés -->
+            <div class="mt-4">
+              <p class="text-sm text-gray-600 mb-2">Modèles rapides :</p>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-secondary" onclick="GroupsUI.applyStructureTemplate('lang-3to4')">
+                  3 classes → 4 groupes
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="GroupsUI.applyStructureTemplate('lang-2x3to6')">
+                  2×3 classes → 6 groupes
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="GroupsUI.applyStructureTemplate('lang-custom')">
+                  Structure personnalisée
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Tableau récapitulatif des passes -->
+          ${this.passes.length > 0 ? `
+            <div class="config-section">
+              <h4 class="font-medium mb-3">Récapitulatif de la structure</h4>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="bg-gray-100">
+                      <th class="p-2 text-left">Passe</th>
+                      <th class="p-2 text-left">Classes</th>
+                      <th class="p-2 text-center">Nb groupes</th>
+                      <th class="p-2 text-left">Noms des groupes</th>
+                      <th class="p-2 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${this.passes.map((pass, index) => `
+                      <tr class="border-b">
+                        <td class="p-2">#${index + 1}</td>
+                        <td class="p-2">${pass.classes.join(', ')}</td>
+                        <td class="p-2 text-center">${pass.numGroups}</td>
+                        <td class="p-2">
+                          <div class="flex flex-wrap gap-1">
+                            ${pass.groupNames.map((name, gIndex) => `
+                              <input type="text" value="${name}" 
+                                     class="px-2 py-1 border rounded text-xs w-20"
+                                     onchange="GroupsUI.updatePassGroupName(${index}, ${gIndex}, this.value)">
+                            `).join('')}
+                          </div>
+                        </td>
+                        <td class="p-2 text-center">
+                          <button class="btn btn-sm btn-danger" onclick="GroupsUI.removePass(${index})" 
+                                  title="Supprimer cette passe">
+                            <i class="fas fa-trash"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              
+              <div class="mt-4 p-3 bg-green-50 rounded">
+                <p class="text-sm text-green-800">
+                  <i class="fas fa-check-circle mr-2"></i>
+                  Total : ${this.getTotalSelectedClasses()} classes → ${this.getTotalGroups()} groupes
+                </p>
+              </div>
+            </div>
+          ` : ''}
+          
+          ${this.passes.length === 0 ? `
+            <div class="message warning">
+              <i class="fas fa-exclamation-triangle mr-2"></i>
+              Ajoutez au moins une passe pour continuer
+            </div>
+          ` : ''}
+        </div>
+      `;
+    },
+    
+    // CORRECTION : Modèles pour langues
+    applyStructureTemplate(template) {
+      this.passes = [];
+      
+      switch(template) {
+        case '3to4':
+          // Sélectionner automatiquement 3 premières classes
+          const classes3 = this.getAvailableClasses().slice(0, 3);
+          this.passes.push({
+            classes: classes3,
+            numGroups: 4,
+            groupNames: ['Grp1', 'Grp2', 'Grp3', 'Grp4']
+          });
+          break;
+          
+        case '2x3to6':
+          // Deux passes de 3 classes chacune
+          const allClasses = this.getAvailableClasses();
+          if (allClasses.length >= 6) {
+            this.passes.push({
+              classes: allClasses.slice(0, 3),
+              numGroups: 3,
+              groupNames: ['Grp1', 'Grp2', 'Grp3']
+            });
+            this.passes.push({
+              classes: allClasses.slice(3, 6),
+              numGroups: 3,
+              groupNames: ['Grp4', 'Grp5', 'Grp6']
+            });
+          }
+          break;
+          
+        case 'lang-3to4':
+          // Modèle spécifique langues
+          const langClasses3 = this.getAvailableClasses().slice(0, 3);
+          this.passes.push({
+            classes: langClasses3,
+            numGroups: 4,
+            groupNames: [`${this.selectedLanguage}-1`, `${this.selectedLanguage}-2`, `${this.selectedLanguage}-3`, `${this.selectedLanguage}-4`]
+          });
+          break;
+          
+        case 'lang-2x3to6':
+          // Modèle spécifique langues
+          const langAllClasses = this.getAvailableClasses();
+          if (langAllClasses.length >= 6) {
+            this.passes.push({
+              classes: langAllClasses.slice(0, 3),
+              numGroups: 3,
+              groupNames: [`${this.selectedLanguage}-1`, `${this.selectedLanguage}-2`, `${this.selectedLanguage}-3`]
+            });
+            this.passes.push({
+              classes: langAllClasses.slice(3, 6),
+              numGroups: 3,
+              groupNames: [`${this.selectedLanguage}-4`, `${this.selectedLanguage}-5`, `${this.selectedLanguage}-6`]
+            });
+          }
+          break;
+      }
+      
+      this.selectedClasses = this.passes.flatMap(p => p.classes);
+      this.loadStepContent(2);
+    }
+  };
+  
+  // Exposer GroupsUI globalement
+  window.GroupsUI = window.GroupsUI;
+  
+  console.log('✅ Module GroupsUI chargé et disponible');
+  
+  })(); // Fin de l'IIFE
+  
+  // ========== PATCHES POUR AMÉLIORER GROUPSUI ==========
+  
+  // 1. PATCH: Configuration flexible pour groupes de besoins
+  GroupsUI.getNeedsConfigContent = function() {
+    return `
+      <div class="space-y-6">
+        <h3 class="text-lg font-semibold mb-4">Configuration des groupes de besoins</h3>
+        
+        <!-- Sélection de la matière -->
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Matière</h4>
+          <div class="flex gap-4 flex-wrap">
+            <button class="subject-btn ${this.selectedSubject === 'Maths' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Maths')">
+              <i class="fas fa-calculator"></i> Mathématiques
+            </button>
+            <button class="subject-btn ${this.selectedSubject === 'Francais' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Francais')">
+              <i class="fas fa-book"></i> Français
+            </button>
+            <button class="subject-btn ${this.selectedSubject === 'Both' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Both')">
+              <i class="fas fa-graduation-cap"></i> Les deux
+            </button>
+          </div>
+        </div>
+        
+        <!-- Type de répartition -->
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Type de répartition</h4>
+          <div class="flex gap-4 flex-wrap">
+            <button class="distribution-btn ${this.selectedDistributionType === 'homogeneous' ? 'active' : ''}" onclick="GroupsUI.selectDistributionType('homogeneous')">
+              <i class="fas fa-equals"></i> Groupes homogènes
+              <span class="text-xs block text-gray-500">Élèves de même niveau</span>
+            </button>
+            <button class="distribution-btn ${this.selectedDistributionType === 'heterogeneous' ? 'active' : ''}" onclick="GroupsUI.selectDistributionType('heterogeneous')">
+              <i class="fas fa-random"></i> Groupes hétérogènes
+              <span class="text-xs block text-gray-500">Équilibre des niveaux 1-4</span>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Structure flexible -->
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Structure des groupes</h4>
+          <div class="bg-blue-50 p-4 rounded-lg mb-4">
+            <p class="text-sm text-blue-800">
+              <i class="fas fa-info-circle mr-2"></i>
+              Sélectionnez les classes à regrouper (2 à 6 classes) et définissez le nombre de groupes à créer
+            </p>
+          </div>
+          
+          <div class="flex items-center gap-4 mb-4">
+            <label class="font-medium">Nombre de groupes à créer :</label>
+            <button class="btn-number" onclick="GroupsUI.changeNumLevelGroups(-1)">
+              <i class="fas fa-minus"></i>
+            </button>
+            <input type="number" id="numLevelGroups" value="${this.numLevelGroups}" min="2" max="12" class="input-number" onchange="GroupsUI.updateNumLevelGroups(this.value)">
+            <button class="btn-number" onclick="GroupsUI.changeNumLevelGroups(1)">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+          
+          <p class="text-sm text-gray-600">
+            Classes sélectionnées : <strong>${this.selectedClasses.length}</strong> → 
+            Groupes à créer : <strong>${this.numLevelGroups}</strong>
+          </p>
+        </div>
+        
+        <!-- Sélection des classes - flexible -->
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Classes à regrouper (sélectionnez 2 à 6 classes)</h4>
+          <div id="classesSelectionLevel" class="grid grid-cols-3 md:grid-cols-4 gap-3">
+            ${this.renderClassesSelection()}
+          </div>
+        </div>
+        
+        ${this.selectedClasses.length >= 2 ? `
+          <div class="message success">
+            <i class="fas fa-check-circle mr-2"></i>
+            ${this.selectedClasses.length} classes sélectionnées → ${this.numLevelGroups} groupes seront créés
+          </div>
+        ` : this.selectedClasses.length > 0 ? `
+          <div class="message warning">
+            <i class="fas fa-exclamation-triangle mr-2"></i>
+            Sélectionnez au moins 2 classes (actuellement : ${this.selectedClasses.length})
+          </div>
+        ` : ''}
+      </div>
+    `;
+  };
+  
+  // 2. PATCH: Sélection flexible des classes
+  GroupsUI.toggleClassSelection = function(className) {
+    console.log('🎯 Toggle classe:', className);
+    const index = this.selectedClasses.indexOf(className);
+    
+    if (this.groupType === 'needs') {
+      // Pour les groupes de besoins, autoriser 2 à 6 classes
+      if (index === -1 && this.selectedClasses.length < 6) {
+        this.selectedClasses.push(className);
+        console.log('✅ Classe ajoutée:', className);
+      } else if (index !== -1) {
+        this.selectedClasses.splice(index, 1);
+        console.log('❌ Classe retirée:', className);
+      } else if (this.selectedClasses.length >= 6) {
+        this.showMessage('Maximum 6 classes peuvent être regroupées', 'warning');
+      }
+    } else {
+      // Pour les groupes de langues, pas de limite
+      if (index === -1) {
+        this.selectedClasses.push(className);
+        console.log('✅ Classe ajoutée:', className);
+      } else {
+        this.selectedClasses.splice(index, 1);
+        console.log('❌ Classe retirée:', className);
+      }
+    }
+    
+    console.log('📋 Classes sélectionnées après toggle:', this.selectedClasses);
+    
+    // Recharger le contenu ET mettre à jour l'affichage
+    this.loadStepContent(2);
+    
+    // Forcer la mise à jour du bouton Suivant
+    setTimeout(() => {
+      this.updateStepDisplay();
+    }, 100);
+  };
+  
+  // 3. PATCH: Vérification pour passer à l'étape suivante
+  GroupsUI.canGoToNextStep = function() {
+    console.log('🔍 === VÉRIFICATION canGoToNextStep ===');
+    console.log('🔍 Étape actuelle:', this.currentStep);
+    console.log('🔍 Type de groupe:', this.groupType);
+    console.log('🔍 Classes sélectionnées:', this.selectedClasses);
+    console.log('🔍 Nombre de classes:', this.selectedClasses.length);
+    
+    let result = false;
+    
+    switch(this.currentStep) {
+      case 1:
+        result = this.groupType !== null;
+        console.log('🔍 Étape 1 - Type sélectionné ?', result);
+        break;
+      case 2:
+        if (this.groupType === 'needs') {
+          result = this.selectedClasses.length >= 2;
+          console.log('🔍 Étape 2 (besoins) - Au moins 2 classes ?', result);
+        } else {
+          result = this.selectedClasses.length >= 1;
+          console.log('🔍 Étape 2 (langues) - Au moins 1 classe ?', result);
+        }
+        break;
+      case 3:
+        result = this.generatedGroups.length > 0;
+        console.log('🔍 Étape 3 - Groupes générés ?', result);
+        break;
+      case 4:
+        result = true;
+        console.log('🔍 Étape 4 - Toujours true');
+        break;
+      default:
+        console.log('🔍 Étape inconnue');
+        result = false;
+    }
+    
+    console.log('🔍 === RÉSULTAT:', result, '===');
+    return result;
+  };
+  
+  // 4. PATCH: Limites plus flexibles pour le nombre de groupes
+  GroupsUI.changeNumLevelGroups = function(delta) {
+    const newValue = this.numLevelGroups + delta;
+    if (newValue >= 2 && newValue <= 12) {
+      this.numLevelGroups = newValue;
+      this.loadStepContent(2);
+    }
+  };
+  
+  GroupsUI.updateNumLevelGroups = function(value) {
+    const num = parseInt(value);
+    if (num >= 2 && num <= 12) {
+      this.numLevelGroups = num;
+    }
+  };
+  
+  // 5. PATCH: Amélioration de l'étape 4 avec swap facile
+  GroupsUI.getStep4Content = function() {
+    const students = this.getAvailableStudents();
+    
+    return `
+      <div class="space-y-6">
+        <h3 class="text-lg font-semibold mb-4">Ajustements manuels</h3>
+        
+        <!-- Mode d'interaction -->
+        <div class="flex gap-4 mb-4">
+          <button class="btn ${!this.swapMode ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="GroupsUI.setSwapMode(false)">
+            <i class="fas fa-arrows-alt"></i> Glisser-déposer
+          </button>
+          <button class="btn ${this.swapMode ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="GroupsUI.setSwapMode(true)">
+            <i class="fas fa-exchange-alt"></i> Mode échange (clic)
+          </button>
+        </div>
+        
+        ${this.swapMode ? `
+          <div class="message info">
+            <i class="fas fa-info-circle mr-2"></i>
+            Mode échange activé : cliquez sur deux élèves pour les échanger
+          </div>
+        ` : ''}
+        
+        <!-- Panneau de statistiques -->
+        <div class="stats-panel bg-gray-50 p-4 rounded-lg">
+          ${this.renderGroupStats()}
+        </div>
+        
+        <!-- Interface de drag & drop ou click swap -->
+        <div class="groups-adjustment">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-${Math.min(this.generatedGroups.length, 4)} gap-4">
+            ${this.generatedGroups.map((group, index) => `
+              <div class="group-container" data-group-index="${index}">
+                <div class="group-header">
+                  <h4 class="font-bold">${group.name}</h4>
+                  <span class="group-count">${group.students.length} élèves</span>
+                </div>
+                <div class="group-students sortable ${this.swapMode ? 'swap-mode' : ''}" id="group-${index}">
+                  ${group.students.map((studentId, studentIndex) => {
+                    const student = students.find(s => s.id === studentId);
+                    return student ? `
+                      <div class="student-card ${this.swapMode ? 'clickable' : 'draggable'}" 
+                           data-student-id="${studentId}"
+                           data-group-index="${index}"
+                           data-student-index="${studentIndex}"
+                           onclick="${this.swapMode ? 'GroupsUI.handleStudentClick(this)' : ''}">
+                        <i class="fas fa-user ${student.sexe === 'F' ? 'text-pink-500' : 'text-blue-500'}"></i>
+                        <span class="${this.getStudentColorClass(student)}">${student.nom} ${student.prenom}</span>
+                        ${this.groupType === 'needs' && student.scores ? `
+                          <span class="text-xs text-gray-500 ml-auto">
+                            M:${student.scores.M || 0} F:${student.scores.F || 0}
+                          </span>
+                        ` : ''}
+                      </div>
+                    ` : '';
+                  }).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        
+        <!-- Actions finales -->
+        <div class="flex justify-center gap-4 mt-6">
+          <button class="btn btn-secondary" onclick="GroupsUI.resetGroups()">
+            <i class="fas fa-undo"></i> Réinitialiser
+          </button>
+          <button class="btn btn-secondary" onclick="GroupsUI.previewGroups()">
+            <i class="fas fa-eye"></i> Aperçu
+          </button>
+          <button class="btn btn-primary" onclick="GroupsUI.saveGroups()">
+            <i class="fas fa-save"></i> Enregistrer définitivement
+          </button>
+        </div>
+      </div>
+    `;
+  };
+  
+  // 6. PATCH: Gestion du mode swap
+  GroupsUI.swapMode = false;
+  GroupsUI.firstSelectedStudent = null;
+  
+  GroupsUI.setSwapMode = function(enabled) {
+    this.swapMode = enabled;
+    this.firstSelectedStudent = null;
+    this.loadStepContent(4);
+  };
+  
+  GroupsUI.handleStudentClick = function(element) {
+    if (!this.swapMode) return;
+    
+    if (!this.firstSelectedStudent) {
+      // Premier clic
+      this.firstSelectedStudent = {
+        element: element,
+        studentId: element.getAttribute('data-student-id'),
+        groupIndex: parseInt(element.getAttribute('data-group-index')),
+        studentIndex: parseInt(element.getAttribute('data-student-index'))
+      };
+      element.classList.add('selected-for-swap');
+    } else {
+      // Deuxième clic - effectuer l'échange
+      const secondStudent = {
+        element: element,
+        studentId: element.getAttribute('data-student-id'),
+        groupIndex: parseInt(element.getAttribute('data-group-index')),
+        studentIndex: parseInt(element.getAttribute('data-student-index'))
+      };
+      
+      // Échanger les élèves dans les groupes
+      this.swapStudents(this.firstSelectedStudent, secondStudent);
+      
+      // Réinitialiser
+      this.firstSelectedStudent.element.classList.remove('selected-for-swap');
+      this.firstSelectedStudent = null;
+      
+      // Recharger l'affichage
+      this.loadStepContent(4);
+    }
+  };
+  
+  GroupsUI.swapStudents = function(student1, student2) {
+    // Échanger dans les tableaux
+    const group1 = this.generatedGroups[student1.groupIndex];
+    const group2 = this.generatedGroups[student2.groupIndex];
+    
+    // Retirer les élèves
+    group1.students.splice(student1.studentIndex, 1);
+    group2.students.splice(student2.studentIndex, 1);
+    
+    // Les ajouter dans l'autre groupe
+    group1.students.splice(student1.studentIndex, 0, student2.studentId);
+    group2.students.splice(student2.studentIndex, 0, student1.studentId);
+    
+    this.showMessage('Élèves échangés avec succès', 'success');
+  };
+  
+  GroupsUI.resetGroups = function() {
+    if (confirm('Réinitialiser les groupes générés ?')) {
+      this.generatedGroups = [];
+      this.currentStep = 3;
+      this.loadStepContent(3);
+    }
+  };
+  
+  // 7. PATCH: Plus de modèles
+  GroupsUI.loadTemplates = function() {
+    const contentDiv = document.getElementById('templatesContent');
+    if (!contentDiv) return;
+    
+    contentDiv.innerHTML = `
+      <div class="space-y-6">
+        <div class="message info">
+          <i class="fas fa-info-circle mr-2"></i>
+          Les modèles permettent de sauvegarder et réutiliser des configurations de groupes.
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Modèles de langues -->
+          <div class="template-card">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-language text-blue-600"></i>
+              Langues - 4 groupes équilibrés
+            </h4>
+            <p class="text-sm text-gray-600 mb-3">
+              4 groupes par langue, équilibrage F/M et scores PART
+            </p>
+            <button class="btn btn-primary btn-sm" onclick="GroupsUI.applyTemplate('lang-4-balanced')">
+              Utiliser ce modèle
+            </button>
+          </div>
+          
+          <div class="template-card">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-language text-blue-600"></i>
+              Langues - 3 groupes par niveau
+            </h4>
+            <p class="text-sm text-gray-600 mb-3">
+              3 groupes avec regroupement par niveau (6e, 5e, 4e, 3e)
+            </p>
+            <button class="btn btn-primary btn-sm" onclick="GroupsUI.applyTemplate('lang-3-level')">
+              Utiliser ce modèle
+            </button>
+          </div>
+          
+          <!-- Modèles de besoins -->
+          <div class="template-card">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-chart-line text-purple-600"></i>
+              Besoins - 3 classes → 4 groupes
+            </h4>
+            <p class="text-sm text-gray-600 mb-3">
+              Configuration classique : 3 classes regroupées en 4 groupes homogènes
+            </p>
+            <button class="btn btn-primary btn-sm" onclick="GroupsUI.applyTemplate('needs-3to4-homo')">
+              Utiliser ce modèle
+            </button>
+          </div>
+          
+          <div class="template-card">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-chart-line text-purple-600"></i>
+              Besoins - 2 classes → 3 groupes
+            </h4>
+            <p class="text-sm text-gray-600 mb-3">
+              2 classes divisées en 3 groupes hétérogènes équilibrés
+            </p>
+            <button class="btn btn-primary btn-sm" onclick="GroupsUI.applyTemplate('needs-2to3-hetero')">
+              Utiliser ce modèle
+            </button>
+          </div>
+          
+          <div class="template-card">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-chart-line text-purple-600"></i>
+              Besoins - Grande cohorte
+            </h4>
+            <p class="text-sm text-gray-600 mb-3">
+              6 classes → 8 groupes, répartition par quartiles
+            </p>
+            <button class="btn btn-primary btn-sm" onclick="GroupsUI.applyTemplate('needs-6to8-quartiles')">
+              Utiliser ce modèle
+            </button>
+          </div>
+          
+          <!-- Modèles personnalisés -->
+          <div class="template-card border-dashed">
+            <h4 class="font-bold mb-2">
+              <i class="fas fa-plus text-green-600"></i>
+              Créer un modèle personnalisé
+            </h4>
+            <p class="text-sm text-gray-600 mb-3">
+              Sauvegardez votre configuration actuelle comme modèle
+            </p>
+            <button class="btn btn-success btn-sm" onclick="GroupsUI.saveAsTemplate()">
+              Créer un modèle
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+  
+  
+  // 10. PATCH: Génération améliorée pour groupes hétérogènes
+  GroupsUI.generateHeterogeneousGroups = function(students) {
+    // Créer les groupes vides AVANT toute distribution !
+    this.generatedGroups = [];
+    for (let i = 0; i < this.numLevelGroups; i++) {
+      this.generatedGroups.push({
+        name: `Groupe ${i + 1}`,
+        students: []
+      });
+    }
+
+    // Trier les élèves par score (1 à 4, jamais 0 !)
+    const scoreGroups = {1: [], 2: [], 3: [], 4: []};
+    students.forEach(student => {
+      let score = Math.ceil((student.compositeScore || 0) / 25); // Valeur 0 si undefined
+      if (score < 1) score = 1;
+      if (score > 4) score = 4;
+      scoreGroups[score].push(student);
+    });
+
+    // Distribuer en serpentin pour chaque niveau de score
+    [1, 2, 3, 4].forEach(scoreLevel => {
+      scoreGroups[scoreLevel].forEach((student, index) => {
+        const groupIndex = index % this.numLevelGroups;
+        this.generatedGroups[groupIndex].students.push(student.id);
+      });
+    });
+  };
+  
+  // Ajouter les styles CSS pour le mode swap
+  if (typeof document !== 'undefined' && !document.getElementById('swap-styles')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'swap-styles';
+    styleEl.textContent = `
+      .student-card.clickable {
+        cursor: pointer;
+      }
+      
+      .student-card.clickable:hover {
+        background-color: #e0e7ff;
+        border-color: #6366f1;
+      }
+      
+      .student-card.selected-for-swap {
+        background-color: #6366f1;
+        color: white;
+      }
+      
+      .student-card.selected-for-swap i {
+        color: white !important;
+      }
+      
+      .swap-mode .student-card {
+        user-select: none;
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+  // ========== CORRECTIONS DES ERREURS ==========
+  
+  
+  
+  // 2. FIX: Ajouter les fonctions manquantes dans GroupsUI
+  GroupsUI.deleteGroup = function(groupId) {
+    if (confirm('Êtes-vous sûr de vouloir supprimer ce groupe ?')) {
+      // Logique de suppression
+      this.showMessage('Groupe supprimé', 'success');
+      this.loadGroupsManager();
+    }
+  };
+  
+  GroupsUI.editGroup = function(groupId) {
+    this.showMessage('Fonction d\'édition en développement', 'info');
+  };
+  
+  GroupsUI.saveAsTemplate = function() {
+    // Utiliser la méthode createModal existante au lieu de créer manuellement
+    const content = `
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            Nom du modèle
+          </label>
+          <input type="text" id="templateName" class="w-full p-2 border rounded" placeholder="Ex: Maths 3 classes homogènes">
+        </div>
+        
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            Description
+          </label>
+          <textarea id="templateDesc" class="w-full p-2 border rounded" rows="3" placeholder="Description du modèle..."></textarea>
+        </div>
+        
+        <div class="flex justify-end gap-3">
+          <button onclick="this.closest('.fixed').remove()" class="btn btn-secondary">
+            Annuler
+          </button>
+          <button onclick="GroupsUI.confirmSaveTemplate()" class="btn btn-primary">
+            <i class="fas fa-save mr-2"></i>
+            Sauvegarder
+          </button>
+        </div>
+      </div>
+    `;
+    
+    this.createModal(content, {
+      title: '<i class="fas fa-save text-green-600 mr-2"></i>Sauvegarder comme modèle'
+    });
+  };
+  
+  GroupsUI.confirmSaveTemplate = function() {
+    const name = document.getElementById('templateName').value;
+    const desc = document.getElementById('templateDesc').value;
+    
+    if (!name) {
+      alert('Veuillez entrer un nom pour le modèle');
+      return;
+    }
+    
+    // Sauvegarder le modèle
+    const template = {
+      name: name,
+      description: desc,
+      config: {
+        groupType: this.groupType,
+        selectedClasses: this.selectedClasses,
+        numGroups: this.groupType === 'language' ? this.numGroups : this.numLevelGroups,
+        selectedLanguage: this.selectedLanguage,
+        selectedSubject: this.selectedSubject,
+        selectedDistributionType: this.selectedDistributionType
+      },
+      timestamp: new Date().toISOString()
+    };
+    
+    // Stocker localement pour l'instant
+    const templates = JSON.parse(localStorage.getItem('groupTemplates') || '[]');
+    templates.push(template);
+    localStorage.setItem('groupTemplates', JSON.stringify(templates));
+    
+    this.showMessage('Modèle sauvegardé avec succès', 'success');
+    document.querySelector('.fixed').remove();
+  };
+  
+  GroupsUI.applyTemplate = function(templateId) {
+    // Configurations prédéfinies selon le template
+    const templates = {
+      'lang-4-balanced': {
+        groupType: 'language',
+        numGroups: 4,
+        selectedLanguage: 'ESP'
+      },
+      'lang-3-level': {
+        groupType: 'language',
+        numGroups: 3,
+        selectedLanguage: 'ESP'
+      },
+      'needs-3to4-homo': {
+        groupType: 'needs',
+        numLevelGroups: 4,
+        selectedSubject: 'Both',
+        selectedDistributionType: 'homogeneous'
+      },
+      'needs-2to3-hetero': {
+        groupType: 'needs',
+        numLevelGroups: 3,
+        selectedSubject: 'Both',
+        selectedDistributionType: 'heterogeneous'
+      },
+      'needs-6to8-quartiles': {
+        groupType: 'needs',
+        numLevelGroups: 8,
+        selectedSubject: 'Both',
+        selectedDistributionType: 'homogeneous'
+      }
+    };
+    
+    const template = templates[templateId];
+    if (template) {
+      // Appliquer la configuration
+      Object.assign(this, template);
+      
+      // Aller à l'étape 1
+      this.currentStep = 1;
+      this.loadStepContent(1);
+      this.updateStepDisplay();
+      
+      this.showMessage('Modèle appliqué', 'success');
+    }
+  };
+  
+  GroupsUI.refreshGroups = function() {
+    this.showMessage('Actualisation...', 'info');
+    this.loadExistingGroups();
+  };
+  
+  
+  
+  
+  
+  GroupsUI.applyCustomTemplate = function(index) {
+    const templates = JSON.parse(localStorage.getItem('groupTemplates') || '[]');
+    const template = templates[index];
+    
+    if (template && template.config) {
+      // Appliquer la configuration
+      Object.assign(this, template.config);
+      
+      // Aller à l'étape 1
+      this.currentStep = 1;
+      this.loadStepContent(1);
+      this.updateStepDisplay();
+      
+      this.showMessage(`Modèle "${template.name}" appliqué`, 'success');
+    }
+  };
+  
+  GroupsUI.deleteTemplate = function(index) {
+    if (confirm('Supprimer ce modèle ?')) {
+      const templates = JSON.parse(localStorage.getItem('groupTemplates') || '[]');
+      templates.splice(index, 1);
+      localStorage.setItem('groupTemplates', JSON.stringify(templates));
+      
+      this.showMessage('Modèle supprimé', 'success');
+      this.loadTemplates();
+    }
+  };
+  
+  // Initialisation automatique quand le DOM est prêt
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('🎯 DOM chargé, initialisation de GroupsUI...');
+    if (typeof GroupsUI !== 'undefined') {
+      GroupsUI.init();
+    } else {
+      console.error('❌ GroupsUI non trouvé au chargement');
+    }
+  });
+  
+  // Helper universel pour la normalisation des noms de classes
+  function normalizeClassName(name) {
+    return (name || "")
+      .toString()
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, ""); // Enlève tous les espaces internes
+  }
+  
+  // Patch de getFilteredStudents pour utiliser la normalisation
+  GroupsUI.getFilteredStudents = function() {
+    const allStudents = this.getAvailableStudents();
+    const selectedNorm = this.selectedClasses.map(normalizeClassName);
+    
+    return allStudents.filter(student => {
+      // Filtrer par classe
+      const className = normalizeClassName(student.classe);
+      if (!selectedNorm.includes(className)) {
+        return false;
+      }
+      
+      // Filtrer par langue si groupes de langues
+      if (this.groupType === 'language') {
+        const studentLang = student.lv2 || '';  // ← CORRECTION : utiliser uniquement lv2
+        
+        if (this.selectedLanguage === 'ITA') {
+          // Pour ITA : uniquement les élèves avec lv2 = "ITA"
+          return studentLang === 'ITA';
+        } else {
+          // Pour ESP : accepter ESP ou valeur vide/null (par défaut)
+          return studentLang === 'ESP' || !studentLang || studentLang === '' || studentLang === null;
+        }
+      }
+      
+      return true;
+    });
+  };
+  
+  // Exemple d'usage pour LV2 (langues)
+  GroupsUI.getITAStudents = function(filteredStudents) {
+    return filteredStudents.filter(s => s.lv2 === "ITA");
+  };
+  GroupsUI.getESPStudents = function(filteredStudents) {
+    return filteredStudents.filter(s => s.lv2 !== "ITA");
+  };
+  
+  // Tri null-safe sur les scores (exemple pour scoreF)
+  GroupsUI.sortByScoreF = function(students) {
+    return students.slice().sort((a, b) => {
+      if (a.scoreF == null && b.scoreF == null) return 0;
+      if (a.scoreF == null) return 1;
+      if (b.scoreF == null) return -1;
+      return a.scoreF - b.scoreF;
+    });
+  };
+  
+  // Debug structure (dev)
+  GroupsUI.debugFirstStudent = function(allStudents) {
+    if (allStudents && allStudents.length > 0) {
+      console.log("Premier élève extrait :", allStudents[0]);
+    }
+  };
+  
+  // Plug & play : fonction pour récupérer les élèves d'une sélection de classes
+  GroupsUI.getStudentsForSelectedClasses = function(allStudents, selectedClasses) {
+    const selectedNorm = selectedClasses.map(normalizeClassName);
+    return allStudents.filter(student =>
+      selectedNorm.includes(normalizeClassName(student.classe))
+    );
+  };
+  
+// PATCH: Refonte complète de l'étape 2 - Configuration flexible avec passes multiples
+GroupsUI.passes = []; // Stockage des passes configurées
+GroupsUI.currentPassIndex = 0;
+
+// Nouvelle fonction pour l'étape 2
+GroupsUI.getStep2Content = function() {
+  if (this.groupType === 'language') {
+    return this.getLanguageConfigContent();
+  } else {
+    return this.getNeedsConfigContent();
+  }
+};
+
+// Configuration unifiée pour groupes de besoins (fonctionne aussi pour langues)
+GroupsUI.getNeedsConfigContent = function() {
+  return `
+    <div class="space-y-6">
+      <h3 class="text-lg font-semibold mb-4">Configuration des groupes ${this.groupType === 'language' ? 'de langues' : 'de besoins'}</h3>
+      
+      ${this.groupType === 'language' ? `
+        <!-- Sélection de la langue -->
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Langue à traiter</h4>
+          <div class="flex gap-4">
+            <button class="lang-btn ${this.selectedLanguage === 'ESP' ? 'active' : ''}" onclick="GroupsUI.selectLanguage('ESP')">
+              <i class="fas fa-flag"></i> Espagnol (ESP)
+            </button>
+            <button class="lang-btn ${this.selectedLanguage === 'ITA' ? 'active' : ''}" onclick="GroupsUI.selectLanguage('ITA')">
+              <i class="fas fa-flag"></i> Italien (ITA)
+            </button>
+          </div>
+        </div>
+      ` : `
+        <!-- Sélection de la matière -->
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Matière</h4>
+          <div class="flex gap-4 flex-wrap">
+            <button class="subject-btn ${this.selectedSubject === 'Maths' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Maths')">
+              <i class="fas fa-calculator"></i> Mathématiques
+            </button>
+            <button class="subject-btn ${this.selectedSubject === 'Francais' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Francais')">
+              <i class="fas fa-book"></i> Français
+            </button>
+            <button class="subject-btn ${this.selectedSubject === 'Both' ? 'active' : ''}" onclick="GroupsUI.selectSubject('Both')">
+              <i class="fas fa-graduation-cap"></i> Les deux
+            </button>
+          </div>
+        </div>
+        
+        <!-- Type de répartition -->
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Type de répartition</h4>
+          <div class="flex gap-4 flex-wrap">
+            <button class="distribution-btn ${this.selectedDistributionType === 'homogeneous' ? 'active' : ''}" onclick="GroupsUI.selectDistributionType('homogeneous')">
+              <i class="fas fa-equals"></i> Groupes homogènes
+            </button>
+            <button class="distribution-btn ${this.selectedDistributionType === 'heterogeneous' ? 'active' : ''}" onclick="GroupsUI.selectDistributionType('heterogeneous')">
+              <i class="fas fa-random"></i> Groupes hétérogènes
+            </button>
+          </div>
+        </div>
+      `}
+      
+      <!-- Structure flexible avec passes -->
+      <div class="config-section">
+        <h4 class="font-medium mb-3">Définition de la structure</h4>
+        
+        <!-- Message d'aide -->
+        ${this.passes.length === 0 ? `
+          <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4">
+            <div class="flex">
+              <div class="flex-shrink-0">
+                <i class="fas fa-info-circle text-blue-400"></i>
+              </div>
+              <div class="ml-3">
+                <p class="text-sm text-blue-700">
+                  <strong>Comment procéder :</strong><br>
+                  1. Sélectionnez les classes à regrouper (2-6 classes)<br>
+                  2. Définissez le nombre de groupes et leurs noms<br>
+                  3. Cliquez sur "Ajouter à la structure"<br>
+                  4. Répétez pour d'autres passes si nécessaire<br>
+                  5. Le bouton "Suivant" se débloquera automatiquement
+                </p>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+        
+        <!-- Formulaire inline pour ajouter une passe -->
+        <div class="bg-blue-50 p-4 rounded-lg space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+            <!-- Sélection des classes -->
+            <div class="md:col-span-5">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                Classes à regrouper (2-6)
+              </label>
+              <div class="flex flex-wrap gap-2" id="passClassSelection">
+                ${this.renderClassCheckboxes()}
+              </div>
+            </div>
+            
+            <!-- Nombre de groupes -->
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                Nb groupes
+              </label>
+              <input type="number" id="passNumGroups" min="1" max="12" value="3" 
+                     class="w-full p-2 border rounded" onchange="GroupsUI.updateGroupNames()">
+            </div>
+            
+            <!-- Noms des groupes -->
+            <div class="md:col-span-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                Noms des groupes
+              </label>
+              <div id="groupNamesContainer" class="space-y-1">
+                <!-- Généré dynamiquement -->
+              </div>
+            </div>
+            
+            <!-- Bouton ajouter avec nommage amélioré -->
+            <div class="md:col-span-1">
+              <button class="btn btn-primary w-full" onclick="GroupsUI.addPass()" 
+                      title="Ajouter cette configuration à la structure globale">
+                <i class="fas fa-plus"></i>
+                <span class="hidden md:inline ml-1">Ajouter</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Modèles suggérés -->
+        <div class="mt-4">
+          <p class="text-sm text-gray-600 mb-2">Modèles rapides :</p>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-secondary" onclick="GroupsUI.applyStructureTemplate('3to4')">
+              3 classes → 4 groupes
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="GroupsUI.applyStructureTemplate('2x3to6')">
+              2×3 classes → 6 groupes
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="GroupsUI.applyStructureTemplate('custom')">
+              Structure personnalisée
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Tableau récapitulatif des passes -->
+      ${this.passes.length > 0 ? `
+        <div class="config-section">
+          <h4 class="font-medium mb-3">Récapitulatif de la structure</h4>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-gray-100">
+                  <th class="p-2 text-left">Passe</th>
+                  <th class="p-2 text-left">Classes</th>
+                  <th class="p-2 text-center">Nb groupes</th>
+                  <th class="p-2 text-left">Noms des groupes</th>
+                  <th class="p-2 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${this.passes.map((pass, index) => `
+                  <tr class="border-b">
+                    <td class="p-2">#${index + 1}</td>
+                    <td class="p-2">${pass.classes.join(', ')}</td>
+                    <td class="p-2 text-center">${pass.numGroups}</td>
+                    <td class="p-2">
+                      <div class="flex flex-wrap gap-1">
+                        ${pass.groupNames.map((name, gIndex) => `
+                          <input type="text" value="${name}" 
+                                 class="px-2 py-1 border rounded text-xs w-20"
+                                 onchange="GroupsUI.updatePassGroupName(${index}, ${gIndex}, this.value)">
+                        `).join('')}
+                      </div>
+                    </td>
+                    <td class="p-2 text-center">
+                      <button class="btn btn-sm btn-danger" onclick="GroupsUI.removePass(${index})" 
+                              title="Supprimer cette passe">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          
+          <div class="mt-4 p-3 bg-green-50 rounded">
+            <p class="text-sm text-green-800">
+              <i class="fas fa-check-circle mr-2"></i>
+              Total : ${this.getTotalSelectedClasses()} classes → ${this.getTotalGroups()} groupes
+            </p>
+          </div>
+        </div>
+      ` : ''}
+      
+      ${this.passes.length === 0 ? `
+        <div class="message warning">
+          <i class="fas fa-exclamation-triangle mr-2"></i>
+          Ajoutez au moins une passe pour continuer
+        </div>
+      ` : ''}
+    </div>
+  `;
+};
+
+// Fonctions helper pour la configuration flexible
+GroupsUI.renderClassCheckboxes = function() {
+  const availableClasses = this.getAvailableClasses();
+  const alreadyUsedClasses = this.passes.flatMap(p => p.classes);
+  
+  return availableClasses.map(className => {
+    const isUsed = alreadyUsedClasses.includes(className);
+    return `
+      <label class="flex items-center gap-1 ${isUsed ? 'opacity-50' : ''}">
+        <input type="checkbox" 
+               value="${className}" 
+               class="pass-class-checkbox"
+               ${isUsed ? 'disabled' : ''}
+               onchange="GroupsUI.updateGroupNames()">
+        <span class="text-sm">${className}</span>
+      </label>
+    `;
+  }).join('');
+};
+
+GroupsUI.updateGroupNames = function() {
+  const container = document.getElementById('groupNamesContainer');
+  const numGroups = parseInt(document.getElementById('passNumGroups').value) || 3;
+  
+  // Calculer le prochain numéro de groupe
+  const existingGroupCount = this.passes.reduce((sum, pass) => sum + pass.numGroups, 0);
+  
+  let html = '<div class="flex flex-wrap gap-1">';
+  for (let i = 0; i < numGroups; i++) {
+    const defaultName = `Grp${existingGroupCount + i + 1}`;
+    html += `
+      <input type="text" 
+             class="group-name-input px-2 py-1 border rounded text-xs w-20" 
+             value="${defaultName}"
+             placeholder="Nom ${i+1}">
+    `;
+  }
+  html += '</div>';
+  
+  container.innerHTML = html;
+};
+
+GroupsUI.addPass = function() {
+  // Récupérer les classes sélectionnées
+  const selectedClasses = Array.from(document.querySelectorAll('.pass-class-checkbox:checked:not(:disabled)'))
+    .map(cb => cb.value);
+  
+  if (selectedClasses.length < 2) {
+    this.showMessage('Sélectionnez au moins 2 classes', 'warning');
+    return;
+  }
+  
+  if (selectedClasses.length > 6) {
+    this.showMessage('Maximum 6 classes par passe', 'warning');
+    return;
+  }
+  
+  // Récupérer le nombre de groupes et leurs noms
+  const numGroups = parseInt(document.getElementById('passNumGroups').value) || 3;
+  const groupNames = Array.from(document.querySelectorAll('.group-name-input'))
+    .map(input => input.value || `Groupe ${input.placeholder}`);
+  
+  // Ajouter la passe
+  this.passes.push({
+    classes: selectedClasses,
+    numGroups: numGroups,
+    groupNames: groupNames
+  });
+  
+  // Mettre à jour selectedClasses global
+  this.selectedClasses = this.passes.flatMap(p => p.classes);
+  
+  // Rafraîchir l'affichage
+  this.loadStepContent(2);
+  this.showMessage('Passe ajoutée avec succès', 'success');
+};
+
+GroupsUI.removePass = function(index) {
+  this.passes.splice(index, 1);
+  this.selectedClasses = this.passes.flatMap(p => p.classes);
+  this.loadStepContent(2);
+};
+
+GroupsUI.updatePassGroupName = function(passIndex, groupIndex, newName) {
+  if (this.passes[passIndex]) {
+    this.passes[passIndex].groupNames[groupIndex] = newName;
+  }
+};
+
+GroupsUI.getTotalSelectedClasses = function() {
+  return this.passes.reduce((sum, pass) => sum + pass.classes.length, 0);
+};
+
+GroupsUI.getTotalGroups = function() {
+  return this.passes.reduce((sum, pass) => sum + pass.numGroups, 0);
+};
+
+GroupsUI.applyStructureTemplate = function(template) {
+  this.passes = [];
+  
+  switch(template) {
+    case '3to4':
+      // Sélectionner automatiquement 3 premières classes
+      const classes3 = this.getAvailableClasses().slice(0, 3);
+      this.passes.push({
+        classes: classes3,
+        numGroups: 4,
+        groupNames: ['Grp1', 'Grp2', 'Grp3', 'Grp4']
+      });
+      break;
+      
+    case '2x3to6':
+      // Deux passes de 3 classes chacune
+      const allClasses = this.getAvailableClasses();
+      if (allClasses.length >= 6) {
+        this.passes.push({
+          classes: allClasses.slice(0, 3),
+          numGroups: 3,
+          groupNames: ['Grp1', 'Grp2', 'Grp3']
+        });
+        this.passes.push({
+          classes: allClasses.slice(3, 6),
+          numGroups: 3,
+          groupNames: ['Grp4', 'Grp5', 'Grp6']
+        });
+      }
+      break;
+  }
+  
+  this.selectedClasses = this.passes.flatMap(p => p.classes);
+  this.loadStepContent(2);
+};
+
+// Mise à jour de canGoToNextStep pour valider les passes
+GroupsUI.canGoToNextStep = function() {
+  switch(this.currentStep) {
+    case 1:
+      return this.groupType !== null;
+    case 2:
+      // Au moins une passe définie
+      return this.passes.length > 0;
+    case 3:
+      return this.generatedGroups.length > 0;
+    case 4:
+      return true;
+  }
+  return false;
+};
+
+// Mise à jour de la génération pour utiliser les passes
+GroupsUI.generateGroups = function() {
+  console.log('🚀 GroupsUI.generateGroups appelée (version multi-passes)');
+  this.showMessage('Génération des groupes en cours...', 'info');
+  
+  setTimeout(() => {
+    try {
+      this.generatedGroups = [];
+      
+      // Générer les groupes pour chaque passe
+      this.passes.forEach((pass, passIndex) => {
+        console.log(`🚀 Génération pour la passe ${passIndex + 1}:`, pass);
+        const passStudents = this.getFilteredStudentsForClasses(pass.classes);
+        console.log(`🚀 Élèves filtrés pour cette passe:`, passStudents.length);
+        
+        if (this.groupType === 'language') {
+          this.generateLanguageGroupsForPass(passStudents, pass, passIndex);
+        } else {
+          this.generateNeedsGroupsForPass(passStudents, pass, passIndex);
+        }
+      });
+      
+      this.showMessage('Groupes générés avec succès !', 'success');
+      this.loadStepContent(3);
+    } catch (error) {
+      console.error('Erreur lors de la génération:', error);
+      this.showMessage('Erreur lors de la génération des groupes', 'error');
+    }
+  }, 500);
+};
+
+GroupsUI.getFilteredStudentsForClasses = function(classes) {
+  const allStudents = this.getAvailableStudents();
+  const normalizedClasses = classes.map(c => normalizeClassName(c));
+  
+  return allStudents.filter(student => {
+    const studentClass = normalizeClassName(student.classe);
+    if (!normalizedClasses.includes(studentClass)) return false;
+    
+    // Filtrer par langue si groupes de langues
+    if (this.groupType === 'language') {
+      // CORRECTION : utiliser lv2 au lieu de lv1
+      const langue = student.lv2 || '';
+      
+      // Logique corrigée pour ESP/ITA
+      if (this.selectedLanguage === 'ITA') {
+        return langue === 'ITA';
+      } else if (this.selectedLanguage === 'ESP') {
+        // Pour ESP : inclure ESP explicite ET les valeurs vides (par défaut)
+        return langue === 'ESP' || langue === '' || !langue || langue === null;
+      }
+    }
+    
+    return true;
+  });
+};
+
+GroupsUI.generateLanguageGroupsForPass = function(students, pass, passIndex) {
+  const groupSize = Math.ceil(students.length / pass.numGroups);
+  
+  // Trier par score PART
+  students.sort((a, b) => (b.part || 0) - (a.part || 0));
+  
+  // Créer et remplir les groupes
+  for (let i = 0; i < pass.numGroups; i++) {
+    const group = {
+      name: pass.groupNames[i],
+      students: [],
+      passIndex: passIndex,
+      classes: pass.classes
+    };
+    
+    // Répartir en serpentin
+    students.forEach((student, index) => {
+      if (index % pass.numGroups === i) {
+        group.students.push(student.id);
+      }
+    });
+    
+    this.generatedGroups.push(group);
+  }
+};
+
+GroupsUI.generateNeedsGroupsForPass = function(students, pass, passIndex) {
+  // Calculer les scores composites
+  students.forEach(student => {
+    if (this.selectedSubject === 'Both') {
+      student.compositeScore = ((student.scores?.M || 0) + (student.scores?.F || 0)) / 2;
+    } else if (this.selectedSubject === 'Maths') {
+      student.compositeScore = student.scores?.M || 0;
+    } else {
+      student.compositeScore = student.scores?.F || 0;
+    }
+  });
+  
+  // Trier par score
+  students.sort((a, b) => b.compositeScore - a.compositeScore);
+  
+  if (this.selectedDistributionType === 'homogeneous') {
+    // Groupes homogènes
+    const groupSize = Math.ceil(students.length / pass.numGroups);
+    for (let i = 0; i < pass.numGroups; i++) {
+      const group = {
+        name: pass.groupNames[i],
+        students: [],
+        passIndex: passIndex,
+        classes: pass.classes
+      };
+      
+      const start = i * groupSize;
+      const end = Math.min(start + groupSize, students.length);
+      
+      for (let j = start; j < end; j++) {
+        if (students[j]) {
+          group.students.push(students[j].id);
+        }
+      }
+      
+      this.generatedGroups.push(group);
+    }
+  } else {
+    // Groupes hétérogènes
+    // Créer les groupes vides
+    const groups = [];
+    for (let i = 0; i < pass.numGroups; i++) {
+      groups.push({
+        name: pass.groupNames[i],
+        students: [],
+        passIndex: passIndex,
+        classes: pass.classes
+      });
+    }
+    
+    // Distribuer en serpentin par niveau
+    const scoreGroups = {1: [], 2: [], 3: [], 4: []};
+    students.forEach(student => {
+      let score = Math.ceil((student.compositeScore || 0) / 25);
+      if (score < 1) score = 1;
+      if (score > 4) score = 4;
+      scoreGroups[score].push(student);
+    });
+    
+    [1, 2, 3, 4].forEach(level => {
+      scoreGroups[level].forEach((student, index) => {
+        const groupIndex = index % pass.numGroups;
+        groups[groupIndex].students.push(student.id);
+      });
+    });
+    
+    this.generatedGroups.push(...groups);
+  }
+};
+
+// Initialiser updateGroupNames au chargement
+setTimeout(() => {
+  if (GroupsUI.currentStep === 2) {
+    GroupsUI.updateGroupNames();
+  }
+}, 100);
+
+// Helper universel pour la validité d'une passe (multi-passes)
+GroupsUI.isPassValid = function(pass) {
+  const minClasses = this.groupType === 'language' ? 1 : 2;
+  return Array.isArray(pass.classes) && pass.classes.length >= minClasses &&
+         Number.isInteger(pass.numGroups) && pass.numGroups >= 2 &&
+         Array.isArray(pass.groupNames) && pass.groupNames.length === pass.numGroups &&
+         pass.groupNames.every(name => name && name.trim().length > 0);
+};
+
+// Nouvelle version centralisée de canGoToNextStep
+GroupsUI.canGoToNextStep = function() {
+  switch(this.currentStep) {
+    case 1:
+      return this.groupType !== null;
+    case 2:
+      if (this.groupType === 'needs') {
+        // Multi-passes : chaque passe doit être valide
+        return this.passes.length > 0 && this.passes.every(pass => GroupsUI.isPassValid.call(this, pass));
+      } else {
+        // Langues : au moins 1 classe, nb groupes ≥2
+        return this.passes.length > 0 && this.passes.every(pass => 
+          pass.classes.length >= 1 && pass.numGroups >= 2
+        );
+      }
+    case 3:
+      return this.generatedGroups.length > 0;
+    case 4:
+      return true;
+  }
+  return false;
+};
+
+// Fonction pour basculer entre les vues groupes et statistiques
+GroupsUI.toggleStatsView = function() {
+  const groupsDisplay = document.getElementById('groupsDisplay');
+  const statsDisplay = document.getElementById('statsDisplay');
+  const btn = event.target.closest('button');
+  
+  if (groupsDisplay.style.display === 'none') {
+    groupsDisplay.style.display = 'block';
+    statsDisplay.style.display = 'none';
+    btn.innerHTML = '<i class="fas fa-chart-bar"></i> Vue statistiques';
+  } else {
+    groupsDisplay.style.display = 'none';
+    statsDisplay.style.display = 'block';
+    btn.innerHTML = '<i class="fas fa-users"></i> Vue groupes';
+  }
+};
+
+// Forcer le refresh du bouton Suivant à chaque modification critique
+// (ajout/suppression passe, modif classes, nb groupes, noms)
+['addPass', 'removePass', 'updatePassGroupName', 'applyStructureTemplate', 'toggleClassSelection', 'changeNumGroups', 'updateNumGroups', 'changeNumLevelGroups', 'updateNumLevelGroups'].forEach(fn => {
+  if (GroupsUI[fn]) {
+    const original = GroupsUI[fn];
+    GroupsUI[fn] = function(...args) {
+      const result = original.apply(this, args);
+      setTimeout(() => this.updateStepDisplay(), 50);
+      return result;
+    };
+  }
+});
+  
+  </script>

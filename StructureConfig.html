@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,500,700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto', Arial, sans-serif;
+      background: #f4f6fb;
+      margin: 0;
+      padding: 20px;
+      color: #222;
+    }
+    
+    .config-card {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    
+    .config-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: #1976d2;
+      margin-bottom: 12px;
+    }
+    
+    .input-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .input-label {
+      width: 150px;
+      font-size: 14px;
+    }
+    
+    .input-field {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: 'Roboto', sans-serif;
+    }
+    
+    .class-container {
+      margin-top: 20px;
+    }
+    
+    .class-card {
+      background: #f9f9f9;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .class-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    
+    .class-title {
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .option-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .option-select {
+      flex: 1;
+      padding: 6px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-right: 8px;
+    }
+    
+    .option-quota {
+      width: 80px;
+      padding: 6px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      font-family: 'Roboto', sans-serif;
+      font-size: 14px;
+      cursor: pointer;
+      margin-left: 10px;
+      background: #1976d2;
+      color: white;
+    }
+    
+    .btn-secondary {
+      background: #9e9e9e;
+    }
+    
+    .btn-add {
+      background: none;
+      border: 1px dashed #1976d2;
+      color: #1976d2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    
+    .btn-remove {
+      background: none;
+      border: none;
+      color: #f44336;
+      cursor: pointer;
+      padding: 4px;
+    }
+    
+    .button-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+    
+    .error-message {
+      color: #d32f2f;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    
+    .success-message {
+      color: #388e3c;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="config-card">
+    <div class="config-title">Paramètres généraux</div>
+    
+    <div class="input-row">
+      <div class="input-label">Nombre total d'élèves:</div>
+      <input type="number" id="effectif-total" class="input-field" min="20" max="500">
+    </div>
+    
+    <div class="input-row">
+      <div class="input-label">Effectif moyen par classe:</div>
+      <input type="number" id="effectif-moyen" class="input-field" min="15" max="35" value="28">
+    </div>
+  </div>
+  
+  <div class="config-card">
+    <div class="config-title">Structure des classes</div>
+    
+    <div id="classes-container" class="class-container">
+      <!-- Les classes seront ajoutées ici dynamiquement -->
+    </div>
+    
+    <button id="btn-add-class" class="btn-add">
+      <i class="material-icons" style="margin-right: 8px;">add</i> Ajouter une classe
+    </button>
+    
+    <div id="message-container"></div>
+  </div>
+  
+  <div class="button-row">
+    <button id="btn-cancel" class="btn btn-secondary">Annuler</button>
+    <button id="btn-save" class="btn">Enregistrer</button>
+  </div>
+  
+  <script>
+    // Variable globale pour stocker les options disponibles
+    let optionsDisponibles = ["LATIN", "GREC", "CHAV", "ITA"];
+    
+    /**
+     * Fonction pour supprimer une classe
+     */
+    function supprimerClasse(bouton) {
+      console.log("Suppression d'une classe");
+      // Trouver la carte de classe parente et la supprimer
+      const classeCard = bouton.closest('.class-card');
+      classeCard.remove();
+      
+      // Mettre à jour les numéros des classes
+      const classes = document.querySelectorAll('.class-card');
+      classes.forEach((classe, index) => {
+        classe.querySelector('.class-title').textContent = `Classe #${index + 1}`;
+      });
+    }
+    
+    /**
+     * Fonction pour ajouter une option à une classe
+     */
+    function ajouterOption(bouton) {
+      console.log("Ajout d'une option");
+      // Trouver le conteneur d'options
+      const optionContainer = bouton.previousElementSibling;
+      
+      // Créer les options pour le select
+      let optionsHTML = '<option value="">-- Sélectionner une option --</option>';
+      optionsDisponibles.forEach(option => {
+        optionsHTML += `<option value="${option}">${option}</option>`;
+      });
+      
+      // Créer une nouvelle ligne d'option
+      const optionHTML = `
+        <div class="option-row">
+          <select class="option-select">
+            ${optionsHTML}
+          </select>
+          <input type="number" class="option-quota" min="0" max="35" value="0" placeholder="Quota">
+          <button class="btn-remove" onclick="supprimerOption(this)"><i class="material-icons">close</i></button>
+        </div>
+      `;
+      
+      // Ajouter au conteneur
+      optionContainer.insertAdjacentHTML('beforeend', optionHTML);
+    }
+    
+    /**
+     * Fonction pour supprimer une option
+     */
+    function supprimerOption(bouton) {
+      console.log("Suppression d'une option");
+      // Trouver la ligne d'option parente et la supprimer
+      const optionRow = bouton.closest('.option-row');
+      optionRow.remove();
+    }
+    
+        // Chargement initial des données
+google.script.run
+  .withSuccessHandler(function(resultat) {
+    console.log("Données de structure chargées:", resultat);
+    
+    // Stocker les options disponibles
+    if (resultat.options && resultat.options.length > 0) {
+      optionsDisponibles = resultat.options;
+    }
+    
+    // Remplir les classes
+    if (resultat.classes && resultat.classes.length > 0) {
+      const container = document.getElementById('classes-container');
+      container.innerHTML = ''; // Effacer le contenu existant
+      
+      resultat.classes.forEach((classe, index) => {
+        // Nettoyer les noms de classes (retirer les apostrophes)
+        let origine = classe.origine || '';
+        let destination = classe.destination || '';
+        
+        // Retirer l'apostrophe si présente
+        if (origine.startsWith("'")) origine = origine.substring(1);
+        if (destination.startsWith("'")) destination = destination.substring(1);
+        
+        let optionsHTML = '';
+        
+        // Créer les lignes d'options pour cette classe
+        if (classe.options && classe.options.length > 0) {
+          classe.options.forEach(option => {
+            // Créer les options pour le select
+            let selectOptionsHTML = '<option value="">-- Sélectionner une option --</option>';
+            optionsDisponibles.forEach(opt => {
+              const selected = opt === option.nom ? 'selected' : '';
+              selectOptionsHTML += `<option value="${opt}" ${selected}>${opt}</option>`;
+            });
+            
+            optionsHTML += `
+              <div class="option-row">
+                <select class="option-select">
+                  ${selectOptionsHTML}
+                </select>
+                <input type="number" class="option-quota" min="0" max="35" value="${option.quota}" placeholder="Quota">
+                <button class="btn-remove" onclick="supprimerOption(this)"><i class="material-icons">close</i></button>
+              </div>
+            `;
+          });
+        }
+        
+        // Créer la carte de classe
+        const classeHTML = `
+          <div class="class-card">
+            <div class="class-header">
+              <div class="class-title">Classe #${index + 1}</div>
+              <button class="btn-remove" onclick="supprimerClasse(this)"><i class="material-icons">delete</i></button>
+            </div>
+            
+            <div class="input-row">
+              <div class="input-label">Classe d'origine:</div>
+              <input type="text" class="input-field classe-origine" value="${origine}">
+            </div>
+            
+            <div class="input-row">
+              <div class="input-label">Classe destination:</div>
+              <input type="text" class="input-field classe-dest" value="${destination}">
+            </div>
+            
+            <div class="input-row">
+              <div class="input-label">Effectif cible:</div>
+              <input type="number" class="input-field effectif" min="15" max="35" value="${classe.effectif || 28}">
+            </div>
+            
+            <div class="config-title" style="font-size: 14px; margin-top: 12px;">Options</div>
+            
+            <div class="option-container">
+              ${optionsHTML}
+            </div>
+            
+            <button class="btn-add" onclick="ajouterOption(this)">
+              <i class="material-icons">add</i> Ajouter une option
+            </button>
+          </div>
+        `;
+        
+        // Ajouter la classe au conteneur
+        container.insertAdjacentHTML('beforeend', classeHTML);
+      });
+    }
+    
+    // Afficher un message si nécessaire
+    if (resultat.message) {
+      document.getElementById('message-container').innerHTML = `
+        <div class="info-message">${resultat.message}</div>
+      `;
+    }
+  })
+  .withFailureHandler(function(error) {
+    console.error("Erreur lors du chargement de la structure:", error);
+    document.getElementById('message-container').innerHTML = `
+      <div class="error-message">Erreur lors du chargement de la structure: ${error}</div>
+    `;
+  })
+  .chargerStructure();
+    
+    // Gestion du bouton "Ajouter une classe"
+    document.getElementById('btn-add-class').addEventListener('click', function() {
+      console.log("Bouton 'Ajouter une classe' cliqué");
+      
+      try {
+        const container = document.getElementById('classes-container');
+        const classeCount = container.querySelectorAll('.class-card').length + 1;
+        
+        // Créer les options pour le select
+        let optionsHTML = '<option value="">-- Sélectionner une option --</option>';
+        optionsDisponibles.forEach(option => {
+          optionsHTML += `<option value="${option}">${option}</option>`;
+        });
+        
+        // Créer une nouvelle carte de classe
+        const classeHTML = `
+          <div class="class-card">
+            <div class="class-header">
+              <div class="class-title">Classe #${classeCount}</div>
+              <button class="btn-remove" onclick="supprimerClasse(this)"><i class="material-icons">delete</i></button>
+            </div>
+            
+            <div class="input-row">
+              <div class="input-label">Classe d'origine:</div>
+              <input type="text" class="input-field classe-origine" value="">
+            </div>
+            
+            <div class="input-row">
+              <div class="input-label">Classe destination:</div>
+              <input type="text" class="input-field classe-dest" value="">
+            </div>
+            
+            <div class="input-row">
+              <div class="input-label">Effectif cible:</div>
+              <input type="number" class="input-field effectif" min="15" max="35" value="28">
+            </div>
+            
+            <div class="config-title" style="font-size: 14px; margin-top: 12px;">Options</div>
+            
+            <div class="option-container">
+              <div class="option-row">
+                <select class="option-select">
+                  ${optionsHTML}
+                </select>
+                <input type="number" class="option-quota" min="0" max="35" value="0" placeholder="Quota">
+                <button class="btn-remove" onclick="supprimerOption(this)"><i class="material-icons">close</i></button>
+              </div>
+            </div>
+            
+            <button class="btn-add" onclick="ajouterOption(this)">
+              <i class="material-icons">add</i> Ajouter une option
+            </button>
+          </div>
+        `;
+        
+        console.log("Ajout de l'HTML pour la nouvelle classe");
+        
+        // Ajouter au conteneur
+        container.insertAdjacentHTML('beforeend', classeHTML);
+        
+        console.log("Classe ajoutée avec succès");
+      } catch (e) {
+        console.error("Erreur lors de l'ajout d'une classe:", e);
+        alert("Erreur lors de l'ajout d'une classe: " + e);
+      }
+    });
+    
+    // Bouton Annuler
+    document.getElementById('btn-cancel').addEventListener('click', function() {
+      google.script.host.close();
+    });
+    
+    // Bouton Enregistrer
+document.getElementById('btn-save').addEventListener('click', function() {
+  console.log("Bouton 'Enregistrer' cliqué");
+  
+  // Collecter les données des classes
+  const classes = [];
+  const classeCards = document.querySelectorAll('.class-card');
+  
+  classeCards.forEach(card => {
+    const origine = card.querySelector('.classe-origine').value;
+    const destination = card.querySelector('.classe-dest').value;
+    const effectif = parseInt(card.querySelector('.effectif').value) || 28;
+    
+    // Collecter les options
+    const options = [];
+    const optionRows = card.querySelectorAll('.option-row');
+    
+    optionRows.forEach(row => {
+      const nom = row.querySelector('.option-select').value;
+      const quota = parseInt(row.querySelector('.option-quota').value) || 0;
+      
+      if (nom && quota > 0) {
+        options.push({
+          nom: nom,
+          quota: quota
+        });
+      }
+    });
+    
+    // Ne prendre que les classes avec origine et destination renseignées
+    if (origine && destination) {
+      classes.push({
+        origine: origine,
+        destination: destination,
+        effectif: effectif,
+        options: options
+      });
+    }
+  });
+  
+  // Envoyer au serveur
+  const structure = {
+    classes: classes
+  };
+  
+  console.log("Structure à sauvegarder:", structure);
+  
+  google.script.run
+    .withSuccessHandler(function(resultat) {
+      console.log("Résultat de la sauvegarde:", resultat);
+      
+      if (resultat.success) {
+        alert('Structure sauvegardée avec succès!');
+        google.script.host.close();
+      } else {
+        document.getElementById('message-container').innerHTML = `
+          <div class="error-message">${resultat.message || "Erreur lors de la sauvegarde"}</div>
+        `;
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error("Erreur lors de la sauvegarde:", error);
+      
+      document.getElementById('message-container').innerHTML = `
+        <div class="error-message">Erreur lors de la sauvegarde: ${error}</div>
+      `;
+    })
+    .sauvegarderStructure(structure);
+});
+  </script>
+</body>
+</html>

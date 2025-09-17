@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analyse & Réservation</title>
+  
+  <!-- Material Design Lite -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-orange.min.css">
+  <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+  
+  <style>
+    /* Styles de base */
+    body { 
+      font-family: 'Roboto', sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      color: #253858;
+      background-color: #F5F7FA;
+    }
+    
+    /* Cacher le contenu pendant le chargement */
+    .loading-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 1000;
+    }
+    
+    /* Styles pour la page entière */
+    .page-content {
+      padding: 16px;
+    }
+    
+    /* Styles pour les cartes */
+    .mdl-card {
+      width: 100%;
+      margin-bottom: 16px;
+    }
+    
+    .mdl-card__title {
+      color: white;
+      height: 64px;
+    }
+    
+    /* Styles pour les tableaux */
+    .mdl-data-table {
+      width: 100% !important;
+      white-space: normal;
+    }
+    
+    /* Boîte de dialogue */
+    .mdl-dialog {
+      width: 80%;
+      max-width: 600px;
+    }
+    
+    /* Bannière d'information */
+    .info-banner {
+      background-color: #E3F2FD;
+      padding: 8px 16px;
+      margin: 0 0 16px 0;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+    }
+    
+    .info-banner i {
+      margin-right: 8px;
+      color: #1976D2;
+    }
+    
+    /* Sélecteurs de codes */
+    .code-selector {
+      cursor: pointer;
+    }
+    
+    .code-selector:hover {
+      text-decoration: underline;
+    }
+    
+    /* Puces */
+    .mdl-chip {
+      margin: 4px;
+    }
+    
+    .mdl-chip__contact {
+      background-color: #673AB7;
+    }
+    
+    /* Animations */
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    .fade-in {
+      animation: fadeIn 0.3s ease-in-out;
+    }
+    
+    /* Modifications des styles Material Design */
+    .mdl-layout__tab-bar {
+      background-color: #3F51B5;
+    }
+    
+    .mdl-layout__tab {
+      color: rgba(255,255,255,0.7);
+    }
+    
+    .mdl-layout__tab.is-active {
+      color: white;
+    }
+    
+    /* Styles spécifiques aux tableaux de critères */
+    .critere-table {
+      margin-bottom: 24px;
+    }
+    
+    .critere-table .mdl-data-table__cell--non-numeric {
+      padding-right: 8px;
+    }
+    
+    /* Styles pour les indicateurs de statut */
+    .status-ok {
+      color: #4CAF50;
+    }
+    
+    .status-warning {
+      color: #FF9800;
+    }
+    
+    .status-error {
+      color: #F44336;
+    }
+    
+    /* Style pour les boutons en en-tête */
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      margin-right: 16px;
+    }
+
+    .header-actions .mdl-button {
+      min-width: 0;
+      padding: 0 12px;
+      height: 36px;
+      line-height: 36px;
+    }
+    
+    /* Barre de progression moderne */
+    .modern-spinner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+    }
+    
+    .modern-spinner .dot1, .modern-spinner .dot2, .modern-spinner .dot3 {
+      width: 12px;
+      height: 12px;
+      margin: 0 4px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4285f4, #34a853);
+      animation: bounce 1.4s infinite ease-in-out both;
+    }
+    
+    .modern-spinner .dot2 {
+      animation-delay: -0.32s;
+    }
+    
+    .modern-spinner .dot3 {
+      animation-delay: -0.16s;
+    }
+    
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0.7); }
+      40% { transform: scale(1.2); }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Conteneur de chargement -->
+  <div id="loading-container" class="loading-container" style="display:none; flex-direction: column; align-items: center;">
+    <div class="modern-spinner">
+      <div class="dot1"></div>
+      <div class="dot2"></div>
+      <div class="dot3"></div>
+    </div>
+    <p id="loading-message" style="margin-top: 16px;">Chargement des données...</p>
+    <div id="progressBarContainer" style="width: 100%; margin-top: 10px; display:none;">
+      <div id="progressBar" style="height: 8px; background: linear-gradient(90deg, #4285f4, #34a853); border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
+      <div id="progressText" style="font-size:12px; margin-top:2px; text-align:right; color:#4285f4;"></div>
+    </div>
+    <div id="treatedList" style="font-size:12px; color:#666; margin-top:4px; text-align:left;"></div>
+  </div>
+  
+  <!-- Structure principale avec onglets -->
+  <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
+    <!-- En-tête -->
+    <header class="mdl-layout__header">
+      <div class="mdl-layout__header-row">
+        <span class="mdl-layout-title">Analyse & Réservation</span>
+        <div class="mdl-layout-spacer"></div>
+        
+        <!-- Boutons d'action placés en haut -->
+        <div class="header-actions">
+          <button id="btn-appliquer" class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored" title="Appliquer les modifications.">
+            Appliquer
+          </button>
+          <button id="btn-annuler" class="mdl-button mdl-js-button mdl-button--raised" title="Annuler les modifications.">
+            Annuler
+          </button>
+          <button id="btn-fermer" class="mdl-button mdl-js-button" title="Fermer l'interface de réservation.">
+            Fermer
+          </button>
+        </div>
+        
+        <div class="mdl-textfield mdl-js-textfield mdl-textfield--expandable">
+          <label class="mdl-button mdl-js-button mdl-button--icon" for="search-field">
+            <i class="material-icons">search</i>
+          </label>
+          <div class="mdl-textfield__expandable-holder">
+            <input class="mdl-textfield__input" type="text" id="search-field" placeholder="Rechercher un élève...">
+            <label class="mdl-textfield__label" for="search-field">Rechercher...</label>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Onglets -->
+      <div class="mdl-layout__tab-bar mdl-js-ripple-effect">
+        <a href="#dashboard-tab" class="mdl-layout__tab is-active">Dashboard</a>
+        <a href="#com-tab" class="mdl-layout__tab">COM</a>
+        <a href="#tra-tab" class="mdl-layout__tab">TRA</a>
+        <a href="#abs-tab" class="mdl-layout__tab">ABS</a>
+        <a href="#reservation-tab" class="mdl-layout__tab">Réservation</a>
+      </div>
+    </header>
+    
+    <!-- Contenu principal -->
+    <main class="mdl-layout__content">
+      <!-- Bannière d'information -->
+      <div class="info-banner">
+        <i class="material-icons">info</i>
+        Pour réserver un code, saisissez l'ID de l'élève ou cliquez directement 
+        dans les colonnes DISSO/ASSO des tableaux.
+      </div>
+      
+      <!-- Onglet Dashboard -->
+      <section class="mdl-layout__tab-panel is-active" id="dashboard-tab">
+        <div class="page-content">
+          <!-- Contenu du Dashboard -->
+          <div id="dashboard-content"></div>
+        </div>
+      </section>
+      
+      <!-- Onglet COM -->
+      <section class="mdl-layout__tab-panel" id="com-tab">
+        <div class="page-content">
+          <!-- Contenu de l'onglet COM -->
+          <div id="com-content"></div>
+        </div>
+      </section>
+      
+      <!-- Onglet TRA -->
+      <section class="mdl-layout__tab-panel" id="tra-tab">
+        <div class="page-content">
+          <!-- Contenu de l'onglet TRA -->
+          <div id="tra-content"></div>
+        </div>
+      </section>
+      
+      <!-- Onglet ABS -->
+      <section class="mdl-layout__tab-panel" id="abs-tab">
+        <div class="page-content">
+          <!-- Contenu de l'onglet ABS -->
+          <div id="abs-content"></div>
+        </div>
+      </section>
+      
+      <!-- Onglet Réservation -->
+      <section class="mdl-layout__tab-panel" id="reservation-tab">
+        <div class="page-content">
+          <!-- Contenu de l'onglet Réservation -->
+          <div id="reservation-content"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  
+  <div class="mat-accordion">
+    <div class="mat-expansion-panel" id="section-reservation">
+      <div class="mat-header" onclick="togglePanel(this)">
+        <i class="material-icons mat-header-icon">event</i>
+        <span class="mat-header-title">Réservations</span>
+        <span class="mat-header-expand material-icons">expand_more</span>
+      </div>
+      <div class="mat-content">
+        <!-- Ajoute ici tous les boutons, feedback, spinner, exports, etc. -->
+        <button id="btnReserver" onclick="lancerReservationConsole()">Réserver</button>
+        <button id="btnExportPDFResa" onclick="exporterPDFReservationConsole()">Exporter PDF</button>
+        <button id="btnExportExcelResa" onclick="exporterExcelReservationConsole()">Exporter Excel</button>
+        <div id="loadingIndicatorReservation" style="display:none; flex-direction: column; align-items: center; margin-top:16px;">
+          <div class="modern-spinner">
+            <div class="dot1"></div>
+            <div class="dot2"></div>
+            <div class="dot3"></div>
+          </div>
+          <span id="loadingMessageReservation">Traitement en cours...</span>
+        </div>
+        <div id="statusBoxReservation"></div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Variables globales
+    let donneesEleves = [];
+    let codesDISSO = {};
+    let codesASSO = {};
+    let nbClasses = 5;
+    
+    // Fonction pour fermer l'interface
+    function fermerInterface() {
+      google.script.host.close();
+    }
+    
+    // Fonction pour gérer les erreurs
+    function gererErreur(error) {
+      document.getElementById('loading-container').style.display = 'none';
+      alert("Une erreur s'est produite: " + error);
+    }
+    
+    // Initialisation au chargement de la page
+    document.addEventListener('DOMContentLoaded', function() {
+      // Récupérer les données depuis le serveur
+      google.script.run
+        .withSuccessHandler(initialiserInterface)
+        .withFailureHandler(gererErreur)
+        .getDonneesReservation();
+      
+      // Configurer les gestionnaires d'événements pour les boutons
+      document.getElementById('btn-appliquer').addEventListener('click', appliquerModifications);
+      document.getElementById('btn-annuler').addEventListener('click', annulerModifications);
+      document.getElementById('btn-fermer').addEventListener('click', fermerInterface);
+      
+      // Configurer la recherche
+      document.getElementById('search-field').addEventListener('keyup', function(event) {
+        if (event.key === 'Enter') {
+          rechercherEleve();
+        }
+      });
+    });
+    
+    // Fonction pour initialiser l'interface avec les données
+    function initialiserInterface(data) {
+      // Stocker les données globalement
+      donneesEleves = data.eleves;
+      nbClasses = data.nbClasses;
+      
+      // Extraire les codes existants
+      donneesEleves.forEach(eleve => {
+        if (eleve.codeDISSO) {
+          codesDISSO[eleve.id] = eleve.codeDISSO;
+        }
+        if (eleve.codeASSO) {
+          codesASSO[eleve.id] = eleve.codeASSO;
+        }
+      });
+      
+      // Initialiser les différents onglets
+      initialiserDashboard(data);
+      initialiserOngletCritere('com', data.criteres.com);
+      initialiserOngletCritere('tra', data.criteres.tra);
+      initialiserOngletCritere('abs', data.criteres.abs);
+      initialiserOngletReservation(data);
+      
+      // Masquer le spinner de chargement
+      document.getElementById('loading-container').style.display = 'none';
+      
+      // Mettre à jour les composants Material Design Lite qui ont été créés dynamiquement
+      componentHandler.upgradeDom();
+    }
+    
+    // Fonction pour initialiser le dashboard
+    function initialiserDashboard(data) {
+      const container = document.getElementById('dashboard-content');
+      
+      // Créer la mise en page du dashboard
+      let html = `
+        <!-- Guide d'utilisation placé en haut -->
+        <div class="mdl-grid">
+          <div class="mdl-cell mdl-cell--12-col">
+            <div class="mdl-card mdl-shadow--2dp" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: #673AB7; color: white;">
+                <h2 class="mdl-card__title-text">Comment utiliser cet outil</h2>
+              </div>
+              <div class="mdl-card__supporting-text">
+                <ol>
+                  <li><strong>Analysez</strong> les élèves par critère (COM, TRA, ABS) dans les onglets correspondants</li>
+                  <li><strong>Identifiez</strong> les élèves les plus faibles que vous souhaitez répartir avec soin</li>
+                  <li><strong>Attribuez</strong> des codes DISSO (élèves à séparer) ou ASSO (élèves à regrouper)</li>
+                  <li><strong>Vérifiez</strong> la cohérence de vos codes grâce aux alertes</li>
+                  <li><strong>Appliquez</strong> les modifications pour enregistrer les codes dans les feuilles sources</li>
+                </ol>
+                <p><strong>Note:</strong> Limitez l'utilisation des codes à 30% des élèves maximum pour garantir 
+                l'efficacité de l'algorithme de répartition.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Statistiques et alertes -->
+        <div class="mdl-grid">
+          <!-- Carte statistiques globales -->
+          <div class="mdl-cell mdl-cell--6-col">
+            <div class="mdl-card mdl-shadow--2dp" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: #2196F3; color: white;">
+                <h2 class="mdl-card__title-text">Statistiques Globales</h2>
+              </div>
+              <div class="mdl-card__supporting-text">
+                <ul class="mdl-list">
+                  <li class="mdl-list__item">
+                    <span class="mdl-list__item-primary-content">
+                      <i class="material-icons mdl-list__item-icon">people</i>
+                      Total élèves: ${data.stats.totalEleves}
+                    </span>
+                  </li>
+                  <li class="mdl-list__item">
+                    <span class="mdl-list__item-primary-content">
+                      <i class="material-icons mdl-list__item-icon">view_module</i>
+                      Classes cibles: ${data.nbClasses}
+                    </span>
+                  </li>
+                  <li class="mdl-list__item">
+                    <span class="mdl-list__item-primary-content">
+                      <i class="material-icons mdl-list__item-icon">code</i>
+                      Codes DISSO: ${data.stats.codesDISSO.nbCodes} codes (${data.stats.codesDISSO.nbEleves} élèves)
+                    </span>
+                  </li>
+                  <li class="mdl-list__item">
+                    <span class="mdl-list__item-primary-content">
+                      <i class="material-icons mdl-list__item-icon">link</i>
+                      Codes ASSO: ${data.stats.codesASSO.nbCodes} codes (${data.stats.codesASSO.nbEleves} élèves)
+                    </span>
+                  </li>
+                  <li class="mdl-list__item">
+                    <span class="mdl-list__item-primary-content">
+                      <i class="material-icons mdl-list__item-icon">pie_chart</i>
+                      Taux utilisation: ${data.stats.pourcentage.pourcentage.toFixed(1)}%
+                      ${getStatusIcon(data.stats.pourcentage.statut)}
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Carte alertes -->
+          <div class="mdl-cell mdl-cell--6-col">
+            <div class="mdl-card mdl-shadow--2dp" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: ${data.alertes.nbAlertes > 0 ? '#FF9800' : '#4CAF50'}; color: white;">
+                <h2 class="mdl-card__title-text">Alertes et Recommandations</h2>
+              </div>
+              <div class="mdl-card__supporting-text">
+                ${genererContenuAlertes(data.alertes)}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      container.innerHTML = html;
+    }
+    
+    // Fonction utilitaire pour générer l'icône appropriée selon le statut
+    function getStatusIcon(statut) {
+      switch(statut) {
+        case "OK":
+          return '<i class="material-icons status-ok">check_circle</i>';
+        case "ATTENTION":
+          return '<i class="material-icons status-warning">warning</i>';
+        case "CRITIQUE":
+          return '<i class="material-icons status-error">error</i>';
+        default:
+          return '';
+      }
+    }
+    
+    // Fonction pour générer le contenu des alertes
+    function genererContenuAlertes(alertes) {
+      if (alertes.nbAlertes === 0) {
+        return `
+          <div style="display: flex; align-items: center; color: #4CAF50;">
+            <i class="material-icons" style="margin-right: 8px;">check_circle</i>
+            <span>Aucun problème détecté dans vos codes DISSO et ASSO.</span>
+          </div>
+        `;
+      }
+      
+      let html = '<ul class="mdl-list" style="padding: 0;">';
+      
+      // Alertes DISSO
+      alertes.alertesDISSO.forEach(alerte => {
+        html += `
+          <li class="mdl-list__item mdl-list__item--two-line">
+            <span class="mdl-list__item-primary-content">
+              <i class="material-icons mdl-list__item-icon status-error">warning</i>
+              <span>Code DISSO "${alerte.code}"</span>
+              <span class="mdl-list__item-sub-title">${alerte.message}</span>
+            </span>
+          </li>
+        `;
+      });
+      
+      // Alertes ASSO
+      alertes.alertesASSO.forEach(alerte => {
+        html += `
+          <li class="mdl-list__item mdl-list__item--two-line">
+            <span class="mdl-list__item-primary-content">
+              <i class="material-icons mdl-list__item-icon status-warning">warning</i>
+              <span>Code ASSO "${alerte.code}"</span>
+              <span class="mdl-list__item-sub-title">${alerte.message}</span>
+            </span>
+          </li>
+        `;
+      });
+      
+      html += '</ul>';
+      return html;
+    }
+    
+    // Fonction pour initialiser les onglets de critères (COM, TRA, ABS)
+    function initialiserOngletCritere(critere, donnees) {
+      const container = document.getElementById(`${critere}-content`);
+      const critereUpper = critere.toUpperCase();
+      
+      // Couleurs pour chaque critère
+      const couleurs = {
+        com: {bg: '#4285F4', light: '#E3F2FD'},
+        tra: {bg: '#0F9D58', light: '#E8F5E9'},
+        abs: {bg: '#DB4437', light: '#FFEBEE'}
+      };
+      
+      // Élèves à afficher (les 15 plus faibles, répartis en 3 groupes de 5)
+      const elevesAffiches = donnees.slice(0, 15);
+      const nbClassesGroupe = Math.min(nbClasses, 5); // Maximum 5 élèves par groupe
+      
+      let html = `
+        <div class="mdl-grid">
+          <div class="mdl-cell mdl-cell--12-col">
+            <div class="mdl-card mdl-shadow--2dp critere-table" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: ${couleurs[critere].bg}; color: white;">
+                <h2 class="mdl-card__title-text">Les ${nbClassesGroupe} élèves avec la moyenne ${critereUpper} la plus faible</h2>
+              </div>
+              <div class="mdl-card__supporting-text" style="padding: 0;">
+                <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+                  <thead>
+                    <tr>
+                      <th class="mdl-data-table__cell--non-numeric">Rang</th>
+                      <th class="mdl-data-table__cell--non-numeric">Élève</th>
+                      <th>ID</th>
+                      <th>Moyenne</th>
+                      <th class="mdl-data-table__cell--non-numeric">Classe</th>
+                      <th>DISSO</th>
+                      <th>ASSO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${genererLignesTableau(elevesAffiches.slice(0, nbClassesGroupe), 0, critere)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="mdl-grid">
+          <div class="mdl-cell mdl-cell--12-col">
+            <div class="mdl-card mdl-shadow--2dp critere-table" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: ${couleurs[critere].bg}; color: white;">
+                <h2 class="mdl-card__title-text">Les ${nbClassesGroupe} élèves suivants (rangs ${nbClassesGroupe+1} à ${nbClassesGroupe*2})</h2>
+              </div>
+              <div class="mdl-card__supporting-text" style="padding: 0;">
+                <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+                  <thead>
+                    <tr>
+                      <th class="mdl-data-table__cell--non-numeric">Rang</th>
+                      <th class="mdl-data-table__cell--non-numeric">Élève</th>
+                      <th>ID</th>
+                      <th>Moyenne</th>
+                      <th class="mdl-data-table__cell--non-numeric">Classe</th>
+                      <th>DISSO</th>
+                      <th>ASSO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${genererLignesTableau(elevesAffiches.slice(nbClassesGroupe, nbClassesGroupe*2), nbClassesGroupe, critere)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="mdl-grid">
+          <div class="mdl-cell mdl-cell--12-col">
+            <div class="mdl-card mdl-shadow--2dp critere-table" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: ${couleurs[critere].bg}; color: white;">
+                <h2 class="mdl-card__title-text">Les ${nbClassesGroupe} élèves suivants (rangs ${nbClassesGroupe*2+1} à ${nbClassesGroupe*3})</h2>
+              </div>
+              <div class="mdl-card__supporting-text" style="padding: 0;">
+                <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+                  <thead>
+                    <tr>
+                      <th class="mdl-data-table__cell--non-numeric">Rang</th>
+                      <th class="mdl-data-table__cell--non-numeric">Élève</th>
+                      <th>ID</th>
+                      <th>Moyenne</th>
+                      <th class="mdl-data-table__cell--non-numeric">Classe</th>
+                      <th>DISSO</th>
+                      <th>ASSO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${genererLignesTableau(elevesAffiches.slice(nbClassesGroupe*2, nbClassesGroupe*3), nbClassesGroupe*2, critere)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      container.innerHTML = html;
+      
+      // Ajouter les gestionnaires d'événements pour les sélecteurs de code
+      setupCodesEventListeners(critere);
+    }
+    
+    // Fonction pour générer les lignes du tableau
+    function genererLignesTableau(eleves, startIndex, critere) {
+      let html = '';
+      
+      eleves.forEach((eleve, index) => {
+        const rang = startIndex + index + 1;
+        const codeDISSO = eleve.codeDISSO || '';
+        const codeASSO = eleve.codeASSO || '';
+        
+        html += `
+          <tr>
+            <td class="mdl-data-table__cell--non-numeric">${rang}</td>
+            <td class="mdl-data-table__cell--non-numeric">${eleve.nom_prenom}</td>
+            <td>${eleve.id}</td>
+            <td>${eleve[critere].toFixed(1)}</td>
+            <td class="mdl-data-table__cell--non-numeric">${eleve.classeSource}</td>
+            <td>
+              <div class="code-selector" data-id="${eleve.id}" data-type="DISSO">
+                ${codeDISSO || '<i class="material-icons" style="font-size: 16px; cursor: pointer;">add_circle</i>'}
+              </div>
+            </td>
+            <td>
+              <div class="code-selector" data-id="${eleve.id}" data-type="ASSO">
+                ${codeASSO || '<i class="material-icons" style="font-size: 16px; cursor: pointer;">add_circle</i>'}
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+      
+      return html;
+    }
+    
+    // Configuration des écouteurs d'événements pour les sélecteurs de code
+    function setupCodesEventListeners(critere) {
+      const selectors = document.querySelectorAll(`#${critere}-content .code-selector`);
+      
+      selectors.forEach(selector => {
+        selector.addEventListener('click', function() {
+          const id = this.dataset.id;
+          const type = this.dataset.type;
+          
+          // Ouvrir le dialogue de sélection de code
+          ouvrirSelecteurCode(id, type, critere, this);
+        });
+      });
+    }
+    
+    // Ouvre un sélecteur de code
+    function ouvrirSelecteurCode(id, type, critere, element) {
+      try {
+        // Récupérer l'élève correspondant à cet ID
+        const eleve = donneesEleves.find(e => e.id.toString() === id.toString());
+        if (!eleve) {
+          console.error('Élève non trouvé avec l\'ID:', id);
+          return;
+        }
+        
+        // Déterminer le code existant pour ce type
+        const codeExistant = type === 'DISSO' ? codesDISSO[id] : codesASSO[id];
+        
+        // Déterminer tous les codes utilisés de ce type
+        const codesUtilises = new Set();
+        donneesEleves.forEach(e => {
+          const code = type === 'DISSO' ? e.codeDISSO : e.codeASSO;
+          if (code) codesUtilises.add(code);
+        });
+        
+        // Générer un ID unique pour ce dialogue
+        const dialogId = `dialog-${type.toLowerCase()}-${Date.now()}`;
+        const inputId = `code-input-${dialogId}`;
+        
+        // Créer la boîte de dialogue
+        const dialog = document.createElement('dialog');
+        dialog.className = 'mdl-dialog';
+        dialog.id = dialogId;
+        
+                // Contenu de la boîte de dialogue
+        dialog.innerHTML = `
+          <h4 class="mdl-dialog__title">Code ${type} pour ${eleve.nom_prenom}</h4>
+          <div class="mdl-dialog__content">
+            <p>Sélectionnez un code existant ou créez-en un nouveau :</p>
+            
+            <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
+              <input class="mdl-textfield__input" type="text" id="${inputId}" value="${codeExistant || ''}">
+              <label class="mdl-textfield__label" for="${inputId}">Code</label>
+            </div>
+            
+            <div class="mdl-list code-chips-container">
+              ${Array.from(codesUtilises).map(code => `
+                <span class="mdl-chip mdl-chip--contact code-chip" data-code="${code}" style="margin: 4px; cursor: pointer;">
+                  <span class="mdl-chip__contact">${type === 'DISSO' ? 'D' : 'A'}</span>
+                  <span class="mdl-chip__text">${code}</span>
+                </span>
+              `).join('')}
+            </div>
+          </div>
+          <div class="mdl-dialog__actions">
+            ${codeExistant ? `
+              <button type="button" class="mdl-button delete-code" style="color: #F44336">Supprimer</button>
+            ` : ''}
+            <button type="button" class="mdl-button close">Annuler</button>
+            <button type="button" class="mdl-button save-code mdl-button--colored">Enregistrer</button>
+          </div>
+        `;
+        
+        // Ajouter la boîte de dialogue au document
+        document.body.appendChild(dialog);
+        
+        // Mettre à jour les composants Material Design
+        componentHandler.upgradeElements(dialog);
+        
+        // Configurer les gestionnaires d'événements pour les puces de code
+        dialog.querySelectorAll('.code-chip').forEach(chip => {
+          chip.addEventListener('click', function() {
+            const code = this.getAttribute('data-code');
+            document.getElementById(inputId).value = code;
+            
+            // S'assurer que le champ est bien mis à jour visuellement
+            const textField = dialog.querySelector('.mdl-textfield');
+            textField.classList.add('is-dirty'); // Pour MDL, indique que le champ est rempli
+          });
+        });
+        
+        // Enregistrer le code
+        dialog.querySelector('.save-code').addEventListener('click', function() {
+          const codeInput = document.getElementById(inputId).value.trim();
+          
+          if (codeInput) {
+            // Mettre à jour le code
+            if (type === 'DISSO') {
+              codesDISSO[id] = codeInput;
+              element.textContent = codeInput;
+            } else {
+              codesASSO[id] = codeInput;
+              element.textContent = codeInput;
+            }
+          }
+          
+          // Fermer et supprimer la boîte de dialogue
+          dialog.close();
+          setTimeout(() => {
+            if (document.body.contains(dialog)) {
+              document.body.removeChild(dialog);
+            }
+          }, 100); // Petit délai pour éviter les problèmes de fermeture
+        });
+        
+        // Supprimer le code
+        if (codeExistant) {
+          dialog.querySelector('.delete-code').addEventListener('click', function() {
+            if (type === 'DISSO') {
+              delete codesDISSO[id];
+              element.innerHTML = '<i class="material-icons" style="font-size: 16px; cursor: pointer;">add_circle</i>';
+            } else {
+              delete codesASSO[id];
+              element.innerHTML = '<i class="material-icons" style="font-size: 16px; cursor: pointer;">add_circle</i>';
+            }
+            
+            // Fermer et supprimer la boîte de dialogue
+            dialog.close();
+            setTimeout(() => {
+              if (document.body.contains(dialog)) {
+                document.body.removeChild(dialog);
+              }
+            }, 100);
+          });
+        }
+        
+        // Fermer la boîte de dialogue
+        dialog.querySelector('.close').addEventListener('click', function() {
+          dialog.close();
+          setTimeout(() => {
+            if (document.body.contains(dialog)) {
+              document.body.removeChild(dialog);
+            }
+          }, 100);
+        });
+        
+        // Afficher la boîte de dialogue
+        dialog.showModal();
+        
+      } catch (error) {
+        console.error("Erreur dans ouvrirSelecteurCode:", error);
+        alert("Une erreur est survenue lors de l'ouverture du sélecteur de code.");
+      }
+    }
+    
+    // Fonction pour initialiser l'onglet Réservation
+    function initialiserOngletReservation(data) {
+      const container = document.getElementById('reservation-content');
+      
+      let html = `
+        <div class="mdl-grid">
+          <!-- Section recherche -->
+          <div class="mdl-cell mdl-cell--12-col">
+            <div class="mdl-card mdl-shadow--2dp" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: #2196F3; color: white;">
+                <h2 class="mdl-card__title-text">Rechercher un élève</h2>
+              </div>
+              <div class="mdl-card__supporting-text">
+                <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label" style="width: 100%;">
+                  <input class="mdl-textfield__input" type="text" id="recherche-eleve">
+                  <label class="mdl-textfield__label" for="recherche-eleve">Nom de l'élève</label>
+                </div>
+                <button id="btn-recherche" class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored">
+                  Rechercher
+                </button>
+              </div>
+              <div id="resultats-recherche" class="mdl-card__supporting-text" style="display: none;">
+                <!-- Les résultats de recherche seront affichés ici -->
+              </div>
+            </div>
+          </div>
+          
+          <!-- Section codes DISSO -->
+          <div class="mdl-cell mdl-cell--6-col">
+            <div class="mdl-card mdl-shadow--2dp" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: #673AB7; color: white;">
+                <h2 class="mdl-card__title-text">Codes DISSO (élèves à séparer)</h2>
+              </div>
+              <div class="mdl-card__supporting-text" style="padding: 0;">
+                <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+                  <thead>
+                    <tr>
+                      <th class="mdl-data-table__cell--non-numeric">Code</th>
+                      <th class="mdl-data-table__cell--non-numeric">Nb élèves</th>
+                      <th class="mdl-data-table__cell--non-numeric">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-disso">
+                    ${genererTableauCodes(data, 'DISSO')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Section codes ASSO -->
+          <div class="mdl-cell mdl-cell--6-col">
+            <div class="mdl-card mdl-shadow--2dp" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: #FF9800; color: white;">
+                <h2 class="mdl-card__title-text">Codes ASSO (élèves à regrouper)</h2>
+              </div>
+              <div class="mdl-card__supporting-text" style="padding: 0;">
+                <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+                  <thead>
+                    <tr>
+                      <th class="mdl-data-table__cell--non-numeric">Code</th>
+                      <th class="mdl-data-table__cell--non-numeric">Nb élèves</th>
+                      <th class="mdl-data-table__cell--non-numeric">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-asso">
+                    ${genererTableauCodes(data, 'ASSO')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Liste des élèves avec codes -->
+          <div class="mdl-cell mdl-cell--12-col">
+            <div class="mdl-card mdl-shadow--2dp" style="width: 100%;">
+              <div class="mdl-card__title" style="background-color: #455A64; color: white;">
+                <h2 class="mdl-card__title-text">Élèves avec codes attribués</h2>
+              </div>
+              <div class="mdl-card__supporting-text" style="padding: 0;">
+                <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+                  <thead>
+                    <tr>
+                      <th class="mdl-data-table__cell--non-numeric">Type</th>
+                      <th class="mdl-data-table__cell--non-numeric">Élève</th>
+                      <th>ID</th>
+                      <th class="mdl-data-table__cell--non-numeric">Classe</th>
+                      <th class="mdl-data-table__cell--non-numeric">Code</th>
+                      <th class="mdl-data-table__cell--non-numeric">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-eleves-codes">
+                    ${genererTableauElevesAvecCodes(data.eleves)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      container.innerHTML = html;
+      
+      // Mettre à jour les composants Material Design
+      componentHandler.upgradeDom();
+      
+      // Configurer la recherche
+      document.getElementById('btn-recherche').addEventListener('click', rechercherEleve);
+      document.getElementById('recherche-eleve').addEventListener('keyup', function(event) {
+        if (event.key === 'Enter') {
+          rechercherEleve();
+        }
+      });
+      
+      // Configurer les clics sur les codes
+      setupCodeTableListeners();
+    }
+    
+    // Génère le tableau des codes
+    function genererTableauCodes(data, type) {
+      const statsType = type === 'DISSO' ? data.stats.codesDISSO : data.stats.codesASSO;
+      const alertesType = type === 'DISSO' ? data.alertes.alertesDISSO : data.alertes.alertesASSO;
+      
+      if (statsType.nbCodes === 0) {
+        return `<tr><td colspan="3" class="mdl-data-table__cell--non-numeric">Aucun code ${type} utilisé</td></tr>`;
+      }
+      
+      let html = '';
+      
+      // Créer un map pour les alertes
+      const alertesMap = {};
+      alertesType.forEach(alerte => {
+        alertesMap[alerte.code] = alerte;
+      });
+      
+      // Générer les lignes
+      Object.entries(statsType.details).forEach(([code, count]) => {
+        const alerte = alertesMap[code];
+        const status = alerte ? 
+          `<span class="status-error"><i class="material-icons" style="font-size: 16px; vertical-align: middle;">warning</i> Problème</span>` : 
+          `<span class="status-ok"><i class="material-icons" style="font-size: 16px; vertical-align: middle;">check_circle</i> OK</span>`;
+        
+        html += `
+          <tr class="code-row" data-code="${code}" data-type="${type}">
+            <td class="mdl-data-table__cell--non-numeric">${code}</td>
+            <td class="mdl-data-table__cell--non-numeric">${count} élève${count > 1 ? 's' : ''}</td>
+            <td class="mdl-data-table__cell--non-numeric">${status}</td>
+          </tr>
+        `;
+      });
+      
+      return html;
+    }
+    
+    // Génère le tableau des élèves avec codes
+    function genererTableauElevesAvecCodes(eleves) {
+      const elevesAvecCodes = eleves.filter(e => e.codeDISSO || e.codeASSO);
+      
+      if (elevesAvecCodes.length === 0) {
+        return `<tr><td colspan="6" class="mdl-data-table__cell--non-numeric">Aucun élève avec code</td></tr>`;
+      }
+      
+      let html = '';
+      
+      elevesAvecCodes.forEach(eleve => {
+        // Si l'élève a les deux types de codes, créer deux lignes
+        if (eleve.codeDISSO) {
+          html += genererLigneEleveCode(eleve, 'DISSO', eleve.codeDISSO);
+        }
+        
+        if (eleve.codeASSO) {
+          html += genererLigneEleveCode(eleve, 'ASSO', eleve.codeASSO);
+        }
+      });
+      
+      return html;
+    }
+    
+    // Génère une ligne pour un élève avec un code
+    function genererLigneEleveCode(eleve, type, code) {
+      return `
+        <tr>
+          <td class="mdl-data-table__cell--non-numeric">
+            <span class="mdl-chip">
+              <span class="mdl-chip__text">${type}</span>
+            </span>
+          </td>
+          <td class="mdl-data-table__cell--non-numeric">${eleve.nom_prenom}</td>
+          <td>${eleve.id}</td>
+          <td class="mdl-data-table__cell--non-numeric">${eleve.classeSource}</td>
+          <td class="mdl-data-table__cell--non-numeric">${code}</td>
+          <td class="mdl-data-table__cell--non-numeric">
+            <button class="mdl-button mdl-js-button mdl-button--icon btn-supprimer-code" data-id="${eleve.id}" data-type="${type}">
+              <i class="material-icons">delete</i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }
+    
+    // Configure les écouteurs d'événements pour les tableaux de codes
+    function setupCodeTableListeners() {
+      // Écouteurs pour les lignes de codes (pour afficher les élèves d'un code)
+      document.querySelectorAll('.code-row').forEach(row => {
+        row.addEventListener('click', function() {
+          const code = this.dataset.code;
+          const type = this.dataset.type;
+          
+          // Afficher les élèves avec ce code
+          afficherElevesParCode(code, type);
+        });
+      });
+      
+      // Écouteurs pour les boutons de suppression de code
+      document.querySelectorAll('.btn-supprimer-code').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation(); // Empêcher la propagation au parent
+          
+          const id = this.dataset.id;
+          const type = this.dataset.type;
+          
+          // Confirmer la suppression
+          if (confirm(`Voulez-vous vraiment supprimer ce code ${type} pour cet élève ?`)) {
+            // Supprimer le code
+            if (type === 'DISSO') {
+              delete codesDISSO[id];
+            } else {
+              delete codesASSO[id];
+            }
+            
+            // Fermer et supprimer la boîte de dialogue
+            document.getElementById('resultats-recherche').style.display = 'none';
+            
+            // Actualiser l'affichage de l'onglet Réservation
+            google.script.run
+              .withSuccessHandler(function(data) {
+                initialiserOngletReservation(data);
+              })
+              .getDonneesReservation();
+          }
+        });
+      });
+    }
+    
+    // Afficher les élèves qui ont un code spécifique
+    function afficherElevesParCode(code, type) {
+      // Créer une boîte de dialogue pour afficher les élèves
+      const dialog = document.createElement('dialog');
+      dialog.className = 'mdl-dialog';
+      
+      // Filtrer les élèves avec ce code
+      const elevesFiltres = donneesEleves.filter(eleve => 
+        (type === 'DISSO' && eleve.codeDISSO === code) || 
+        (type === 'ASSO' && eleve.codeASSO === code)
+      );
+      
+      // Contenu de la boîte de dialogue
+      dialog.innerHTML = `
+        <h4 class="mdl-dialog__title">Élèves avec le code ${type} "${code}"</h4>
+        <div class="mdl-dialog__content">
+          <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+            <thead>
+              <tr>
+                <th class="mdl-data-table__cell--non-numeric">Élève</th>
+                <th>ID</th>
+                <th class="mdl-data-table__cell--non-numeric">Classe</th>
+                <th class="mdl-data-table__cell--non-numeric">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${elevesFiltres.map(eleve => `
+                <tr>
+                  <td class="mdl-data-table__cell--non-numeric">${eleve.nom_prenom}</td>
+                  <td>${eleve.id}</td>
+                  <td class="mdl-data-table__cell--non-numeric">${eleve.classeSource}</td>
+                  <td class="mdl-data-table__cell--non-numeric">
+                    <button class="mdl-button mdl-js-button mdl-button--icon btn-dialog-supprimer" data-id="${eleve.id}" data-type="${type}">
+                      <i class="material-icons">delete</i>
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="mdl-dialog__actions">
+          <button type="button" class="mdl-button close">Fermer</button>
+        </div>
+      `;
+      
+      // Ajouter la boîte de dialogue au document
+      document.body.appendChild(dialog);
+      
+      // Configurer les boutons de suppression
+      dialog.querySelectorAll('.btn-dialog-supprimer').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const id = this.dataset.id;
+          const typeCode = this.dataset.type;
+          
+          // Supprimer le code
+          if (typeCode === 'DISSO') {
+            delete codesDISSO[id];
+          } else {
+            delete codesASSO[id];
+          }
+          
+          // Fermer la boîte de dialogue et actualiser l'affichage
+          dialog.close();
+          dialog.remove();
+          
+          google.script.run
+            .withSuccessHandler(function(data) {
+              initialiserOngletReservation(data);
+            })
+            .getDonneesReservation();
+        });
+      });
+      
+      // Configurer le bouton de fermeture
+      dialog.querySelector('.close').addEventListener('click', function() {
+        dialog.close();
+        dialog.remove();
+      });
+      
+      // Afficher la boîte de dialogue
+      dialog.showModal();
+    }
+    
+    // Fonction de recherche d'élèves
+    function rechercherEleve() {
+      const searchInput = document.getElementById('recherche-eleve');
+      const terme = searchInput.value.trim();
+      
+      if (!terme) {
+        alert("Veuillez saisir un nom d'élève à rechercher");
+        return;
+      }
+      
+      // Afficher le chargement
+      const resultsContainer = document.getElementById('resultats-recherche');
+      resultsContainer.style.display = 'block';
+      resultsContainer.innerHTML = `
+        <div style="display: flex; justify-content: center; align-items: center; padding: 20px;">
+          <div class="mdl-spinner mdl-js-spinner is-active"></div>
+          <span style="margin-left: 10px;">Recherche en cours...</span>
+        </div>
+      `;
+      
+      // Mettre à jour le material design
+      componentHandler.upgradeElement(resultsContainer.querySelector('.mdl-spinner'));
+      
+      // Effectuer la recherche côté serveur
+      google.script.run
+        .withSuccessHandler(function(resultats) {
+          afficherResultatsRecherche(resultats, terme);
+        })
+        .withFailureHandler(function(error) {
+          resultsContainer.innerHTML = `
+            <p style="color: #F44336;">
+              <i class="material-icons" style="vertical-align: middle;">error</i>
+              Erreur: ${error}
+            </p>
+          `;
+        })
+        .rechercherEleve(terme);
+    }
+    
+    // Afficher les résultats de recherche
+    function afficherResultatsRecherche(resultats, terme) {
+      const resultsContainer = document.getElementById('resultats-recherche');
+      
+      if (!resultats || resultats.length === 0) {
+        resultsContainer.innerHTML = `
+          <p>Aucun élève ne correspond à la recherche "${terme}"</p>
+        `;
+        return;
+      }
+      
+      // Générer le tableau de résultats
+      resultsContainer.innerHTML = `
+        <h5>Résultats pour "${terme}" (${resultats.length} élèves)</h5>
+        <table class="mdl-data-table mdl-js-data-table" style="width: 100%;">
+          <thead>
+            <tr>
+              <th class="mdl-data-table__cell--non-numeric">Élève</th>
+              <th>ID</th>
+              <th class="mdl-data-table__cell--non-numeric">Classe</th>
+              <th>DISSO</th>
+              <th>ASSO</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${resultats.map(eleve => `
+              <tr>
+                <td class="mdl-data-table__cell--non-numeric">${eleve.nom_prenom}</td>
+                <td>${eleve.id}</td>
+                <td class="mdl-data-table__cell--non-numeric">${eleve.classeSource}</td>
+                <td>
+                  <div class="code-selector" data-id="${eleve.id}" data-type="DISSO">
+                    ${eleve.codeDISSO || '<i class="material-icons" style="font-size: 16px; cursor: pointer;">add_circle</i>'}
+                  </div>
+                </td>
+                <td>
+                  <div class="code-selector" data-id="${eleve.id}" data-type="ASSO">
+                    ${eleve.codeASSO || '<i class="material-icons" style="font-size: 16px; cursor: pointer;">add_circle</i>'}
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      
+      // Configurer les sélecteurs de code
+      const selectors = document.querySelectorAll('#resultats-recherche .code-selector');
+      
+      selectors.forEach(selector => {
+        selector.addEventListener('click', function() {
+          const id = this.dataset.id;
+          const type = this.dataset.type;
+          
+          // Ouvrir le dialogue de sélection de code
+          ouvrirSelecteurCode(id, type, 'recherche', this);
+        });
+      });
+      
+      // Mettre à jour les composants Material Design
+      componentHandler.upgradeDom();
+    }
+    
+    // Fonction pour annuler les modifications
+    function annulerModifications() {
+      if (confirm("Voulez-vous vraiment annuler toutes vos modifications ?")) {
+        // Recharger les données depuis le serveur
+        document.getElementById('loading-container').style.display = 'flex';
+        
+        google.script.run
+          .withSuccessHandler(initialiserInterface)
+          .withFailureHandler(gererErreur)
+          .getDonneesReservation();
+      }
+    }
+    
+    // Fonction pour appliquer les modifications
+    function appliquerModifications() {
+      // Afficher un spinner
+      document.getElementById('btn-appliquer').disabled = true;
+      document.getElementById('btn-appliquer').innerHTML = 
+        '<div class="mdl-spinner mdl-js-spinner is-active"></div> Enregistrement...';
+      componentHandler.upgradeElement(document.querySelector('#btn-appliquer .mdl-spinner'));
+      
+      // Appliquer les modifications
+      google.script.run
+        .withSuccessHandler(function(result) {
+          // Afficher le message de succès
+          alert(result.message);
+          
+          // Restaurer le bouton
+          document.getElementById('btn-appliquer').disabled = false;
+          document.getElementById('btn-appliquer').innerHTML = 'Appliquer';
+          
+          // Actualiser les données
+          google.script.run
+            .withSuccessHandler(initialiserInterface)
+            .withFailureHandler(gererErreur)
+            .getDonneesReservation();
+        })
+        .withFailureHandler(function(error) {
+          alert("Erreur: " + error);
+          document.getElementById('btn-appliquer').disabled = false;
+          document.getElementById('btn-appliquer').innerHTML = 'Appliquer';
+        })
+        .enregistrerCodesReservation({
+          disso: codesDISSO,
+          asso: codesASSO
+        });
+    }
+    
+    function setLoading(isLoading, message = "Traitement en cours...", progress = null, progressMax = null, treatedItems = []) {
+      const loadingContainer = document.getElementById('loading-container');
+      const loadingMessage = document.getElementById('loading-message');
+      const progressBarContainer = document.getElementById('progressBarContainer');
+      const progressBar = document.getElementById('progressBar');
+      const progressText = document.getElementById('progressText');
+      const treatedList = document.getElementById('treatedList');
+
+      if (isLoading) {
+        loadingContainer.style.display = 'flex';
+        loadingMessage.textContent = message;
+        document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        // Affiche la barre si progress est fourni
+        if (progress !== null && progressMax !== null) {
+          progressBarContainer.style.display = 'block';
+          const percent = Math.round((progress / progressMax) * 100);
+          progressBar.style.width = percent + '%';
+          progressText.textContent = `Classe ${progress}/${progressMax}`;
+        } else {
+          progressBarContainer.style.display = 'none';
+          progressBar.style.width = '0%';
+          progressText.textContent = '';
+        }
+        // Liste des classes traitées
+        if (treatedItems && treatedItems.length > 0) {
+          treatedList.innerHTML = 'Déjà traitées : ' + treatedItems.join(', ');
+        } else {
+          treatedList.innerHTML = '';
+        }
+      } else {
+        loadingContainer.style.display = 'none';
+        loadingMessage.textContent = '';
+        progressBarContainer.style.display = 'none';
+        progressBar.style.width = '0%';
+        progressText.textContent = '';
+        treatedList.innerHTML = '';
+        document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+      }
+    }
+
+    // Exemple d'appel côté Apps Script (callback progressif)
+    // setLoading(true, 'Export PDF en cours...', 2, 8, ['5e1', '5e2']);
+
+    // Pour les traitements par lots, côté Apps Script, utiliser google.script.run.withSuccessHandler(function(progressData) { ... })
+    // et appeler setLoading(true, message, progress, progressMax, treatedItems) à chaque étape.
+  </script>
+  
+  <script>
+    function setLoadingReservation(isLoading, message = "Traitement en cours...") {
+      const loadingIndicator = document.getElementById('loadingIndicatorReservation');
+      const loadingMessage = document.getElementById('loadingMessageReservation');
+      if (isLoading) {
+        loadingIndicator.style.display = 'flex';
+        loadingMessage.textContent = message;
+        document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+      } else {
+        loadingIndicator.style.display = 'none';
+        loadingMessage.textContent = '';
+        document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+      }
+    }
+    function lancerReservationConsole() {
+      setLoadingReservation(true, 'Réservation en cours...');
+      document.getElementById('statusBoxReservation').textContent = '';
+      google.script.run
+        .withSuccessHandler(function(res) {
+          setLoadingReservation(false);
+          document.getElementById('statusBoxReservation').textContent = '✅ Réservation terminée !';
+        })
+        .withFailureHandler(function(e) {
+          setLoadingReservation(false);
+          document.getElementById('statusBoxReservation').textContent = '❌ Erreur lors de la réservation.';
+        })
+        .lancerReservation();
+    }
+    function exporterPDFReservationConsole() {
+      setLoadingReservation(true, 'Export PDF en cours...');
+      google.script.run
+        .withSuccessHandler(function(res) {
+          setLoadingReservation(false);
+          document.getElementById('statusBoxReservation').textContent = '✅ Export PDF terminé !';
+        })
+        .withFailureHandler(function(e) {
+          setLoadingReservation(false);
+          document.getElementById('statusBoxReservation').textContent = '❌ Erreur export PDF.';
+        })
+        .exporterPDFReservation();
+    }
+    function exporterExcelReservationConsole() {
+      setLoadingReservation(true, 'Export Excel en cours...');
+      google.script.run
+        .withSuccessHandler(function(res) {
+          setLoadingReservation(false);
+          document.getElementById('statusBoxReservation').textContent = '✅ Export Excel terminé !';
+        })
+        .withFailureHandler(function(e) {
+          setLoadingReservation(false);
+          document.getElementById('statusBoxReservation').textContent = '❌ Erreur export Excel.';
+        })
+        .exporterExcelReservation();
+    }
+  </script>
+</body>
+</html>

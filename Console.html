@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,500,700&display=swap" rel="stylesheet">
+  <style>
+    /* Styles de base */
+    body {
+      font-family: 'Roboto', Arial, sans-serif;
+      background: #f4f6fb;
+      margin: 0;
+      padding: 0 0 24px; /* Laissez un peu de padding en bas pour le scroll global potentiel */
+      color: #222;
+      min-width: 260px;
+      max-width: 400px; 
+      box-sizing: border-box;
+      /* overflow-y: auto; /* Retiré pour permettre un scroll plus ciblé si une section est trop grande */
+    }
+
+    .mat-accordion {
+      margin: 12px 10px 0;
+      border-radius: 13px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.09);
+      background: #fff;
+      overflow: hidden; 
+    }
+
+    .mat-expansion-panel { } 
+
+    .mat-header {
+      display: flex;
+      align-items: center;
+      background: #2196f3; 
+      color: #fff;
+      padding: 16px 24px;
+      cursor: pointer;
+      transition: background 0.3s;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+     .mat-expansion-panel:last-child .mat-header {
+       border-bottom: none;
+    }
+
+    /* Couleurs spécifiques */
+    #section-configuration .mat-header { background: #4CAF50; }
+    #section-repartition .mat-header { background: #FF9800; }
+    #section-optimisation .mat-header { background: #9C27B0; }
+    #section-finalisation .mat-header { background: #f44336; }
+    #section-statistiques .mat-header { background: #607D8B; }
+    #section-onglets .mat-header { background: #757575; }
+    
+    #section-configuration .mat-header:hover { background: #388E3C; }
+    #section-repartition .mat-header:hover { background: #F57C00; }
+    #section-optimisation .mat-header:hover { background: #7B1FA2; }
+    #section-finalisation .mat-header:hover { background: #D32F2F; }
+    #section-statistiques .mat-header:hover { background: #455A64; }
+    #section-onglets .mat-header:hover { background: #616161; }
+
+    .mat-header-icon { margin-right: 16px; }
+    .mat-header-title { flex: 1; font-weight: 500; }
+    .mat-header-expand { transition: transform 0.3s ease-in-out; }
+
+    /* Styles pour .mat-content (conteneur de l'accordéon) */
+    .mat-content {
+      padding: 0; /* Padding retiré, sera sur .mat-content-inner-* ou spécifique */
+      max-height: 0;
+      overflow: hidden; 
+      transition: max-height 0.35s ease-in-out, padding-top 0.35s ease-in-out, padding-bottom 0.35s ease-in-out;
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    /* Style pour les sections ouvertes NON-Optimisation */
+    .mat-expansion-panel:not(#section-optimisation).mat-expanded > .mat-content {
+      padding: 16px 24px; 
+      max-height: 1000px; /* Ou une autre valeur appropriée pour les autres sections */
+      overflow: hidden; /* Pas de scroll par défaut pour les autres sections */
+    }
+    
+    /* Style spécifique pour le contenu de la section OPTIMISATION quand elle est ouverte */
+    #section-optimisation.mat-expanded > .mat-content {
+      padding: 0; /* Le padding est sur le .mat-content-inner-optimisation */
+      max-height: calc(100vh - 120px); /* Hauteur max: hauteur de la fenêtre moins X pixels. */
+                                      /* AJUSTEZ 120px en fonction de la hauteur de l'en-tête et autres éléments fixes */
+                                      /* Exemple : si l'en-tête fait 50px et vous voulez 70px de marge totale (haut/bas) */
+      overflow-y: auto;   /* Ajoute l'ascenseur vertical si nécessaire */
+      overflow-x: hidden; /* Empêche l'ascenseur horizontal */
+    }
+
+    /* Conteneur interne pour la section optimisation, qui aura le padding */
+    .mat-content-inner-optimisation {
+        padding: 16px 24px; /* Le padding que vous aviez sur .mat-expanded .mat-content */
+    }
+    
+     .mat-expansion-panel:first-child.mat-expanded > .mat-content {
+       border-top: none;
+     }
+    .mat-expanded > .mat-header-expand { 
+        transform: rotate(180deg); 
+    }
+
+    /* Styles boutons (inchangés) */
+    .mat-button { background: #e0e0e0; border: none; border-radius: 4px; color: rgba(0,0,0,0.87); cursor: pointer; display: flex; align-items: center; font-family: 'Roboto', sans-serif; font-size: 14px; padding: 8px 16px; margin-bottom: 12px; transition: background 0.3s, box-shadow 0.3s; min-width: 120px; box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); text-transform: uppercase; justify-content: center; width: 100%; box-sizing: border-box; height: 36px; }
+    .mat-button:hover { background: #d5d5d5; box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23); }
+    .mat-button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; background: #eee; }
+    .mat-button-icon { margin-right: 8px; font-size: 18px; }
+    .mat-button-primary { background: #2196F3; color: white; }
+    .mat-button-primary:hover { background: #1976D2; }
+    .mat-button-success { background: #4CAF50; color: white; }
+    .mat-button-success:hover { background: #388E3C; }
+    .mat-button-warning { background: #F44336; color: white; }
+    .mat-button-warning:hover { background: #D32F2F; }
+    .mat-button-accent { background: #FFC107; color: rgba(0,0,0,0.87); }
+    .mat-button-accent:hover { background: #FFA000; }
+    .mat-button-stats { background: #673AB7; color: white; }
+    .mat-button-stats:hover { background: #512DA8; }
+    #btn-analyser-reserver span { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; text-align: left; }
+    #btn-analyser-reserver .mat-button-icon { margin-right: 12px; }
+
+    /* Autres styles (divider, info-panel, spinner, checkboxes...) */
+    .divider { height: 1px; background: #e0e0e0; margin: 16px 0; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .spinner { animation: spin 1.2s linear infinite; }
+    #classes-selection { margin-bottom: 16px; max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 4px; }
+    #classes-selection div { margin-bottom: 8px; display: flex; align-items: center; }
+    #classes-selection input[type="checkbox"] { margin-right: 8px; cursor: pointer; }
+    #classes-selection label { cursor: pointer; flex-grow: 1; }
+    
+    /* Info-bulle */
+    .tooltip { position: relative; display: inline-block; margin-left: 5px; cursor: help; }
+    .tooltip .tooltip-icon { color: #2196F3; font-size: 16px; vertical-align: middle; }
+    .tooltip .tooltip-text { visibility: hidden; width: 200px; background-color: #555; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -100px; opacity: 0; transition: opacity 0.3s; font-size: 12px; font-weight: normal; text-transform: none; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+    .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+    
+    /* === STYLES POUR PHASE 4 (OPTIMISATION) === */
+    .phase4-container { background-color: #ffffff; border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .phase4-info-box { font-size: 13px; color: #666; margin-bottom: 15px; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #9C27B0;}
+    .phase4-checkbox-group label { display: block; margin-bottom: 10px; font-size: 14px; cursor: pointer; }
+    .phase4-buttons { margin-top: 15px; }
+    .phase4-result { background-color: #ffffff; border: 1px solid #dadce0; border-radius: 8px; padding: 16px; margin-top: 15px; font-size: 14px; display: none; }
+    .phase4-gauge { margin-bottom: 20px; }
+    .phase4-gauge-label { font-size: 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
+    .phase4-gauge-track { position: relative; width: 100%; height: 10px; background: #e8eaed; border-radius: 5px; overflow: hidden; margin-bottom: 3px; }
+    .phase4-gauge-fill { height: 100%; border-radius: 5px; width: 0%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+    .phase4-gauge-good { background: #34a853; }
+    .phase4-gauge-medium { background: #fbbc04; }
+    .phase4-gauge-bad { background: #ea4335; }
+    .phase4-gauge-marker { position: absolute; width: 3px; height: 10px; background: #4285f4; top: 0; left: 0%; transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 1px 1px rgba(0,0,0,0.2); }
+    .phase4-gauge-scale { display: flex; justify-content: space-between; font-size: 11px; color: #5f6368; margin-top: 2px; padding: 0 1px; }
+    .swap-wrapper summary { cursor: pointer; font-weight: 500; margin: 16px 0 8px 0; outline: none; color: #1a73e8; font-size: 14px; }
+    /* Style pour la liste des swaps (déjà là, sera dans le div scrollable) */
+    .swap-list { list-style: none; padding: 0; margin: 0; /* max-height: 200px; */ /* retiré car géré par le div parent */ /* overflow-y: auto; */ /* retiré */ border: 1px solid #e0e0e0; border-radius: 4px; padding: 5px; background-color: #fff; }
+    .swap-item { padding: 5px 8px; margin-bottom: 4px; border-bottom: 1px solid #f0f0f0; font-size: 13px; line-height: 1.4; }
+    
+    /* === STYLES POUR PHASE 5 (FINALISATION) === */
+    .phase5-container { background-color: #ffffff; border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .phase5-title { font-size: 16px; font-weight: 500; margin-bottom: 15px; color: #333; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px; }
+    .class-list { max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; border-radius: 4px; margin-bottom: 15px; background: #fff; }
+    .class-item { margin-bottom: 5px; }
+    .options-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
+    .button-group { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+    .reset-button { background-color: #d93025; }
+    .reset-button:hover { background-color: #c5221f; }
+    
+    /* Styles améliorés pour la section onglets */
+    .onglets-liste { max-height: 300px; overflow-y: auto; border: 1px solid #dadce0; padding: 12px; border-radius: 8px; margin: 12px 0; background: #fff; }
+    .onglet-categorie { margin-bottom: 16px; }
+    .onglet-categorie:last-child { margin-bottom: 0; }
+    .onglet-categorie-titre { font-weight: 500; margin-bottom: 8px; color: #333; background-color: #f1f3f4; padding: 8px 10px; border-radius: 4px; }
+    .onglet-item { display: flex; align-items: center; margin-bottom: 8px; padding: 4px 8px; border-radius: 4px; transition: background-color 0.2s; }
+    .onglet-item:hover { background-color: #f8f9fa; }
+    .onglet-item input[type="checkbox"] { margin: 0; cursor: pointer; }
+    .onglet-item label { margin-left: 8px; cursor: pointer; flex: 1; }
+</style>
+</head>
+<body>
+  <!-- Section CONFIGURATION -->
+<div class="mat-accordion">
+  <div class="mat-expansion-panel" id="section-configuration">
+    <!-- Header -->
+    <div class="mat-header" onclick="togglePanel(this)">
+      <i class="material-icons mat-header-icon">settings</i>
+      <div class="mat-header-title">CONFIGURATION</div>
+      <i class="material-icons mat-header-expand">expand_more</i>
+    </div>
+    <!-- Content -->
+    <div class="mat-content">
+       <!-- Utilisation de runGAS pour simplifier les appels -->
+      <button id="btn-config-tout" class="mat-button mat-button-success" onclick="runGAS('ouvrirConfigurationComplete', this.id)" title="Crée la structure complète du classeur avec les configurations nécessaires">
+        <i class="material-icons mat-button-icon">tune</i> Créer Structure
+      </button>
+      <button id="btn-generer-id-nom-prenom" class="mat-button mat-button-success" onclick="runGAS('genererNomPrenomEtID', this.id)" title="Génère les ID et combine les noms et prénoms en masquant les colonnes sources">
+      <i class="material-icons mat-button-icon">badge</i> CRÉER ID + N&P
+      </button>
+      <button id="btn-creer-collecte" class="mat-button mat-button-success" onclick="runGAS('creerFeuillesProfesseurs', this.id)" title="Génère les feuilles de collecte pour les professeurs">
+        <i class="material-icons mat-button-icon">post_add</i> Créer Collecte
+      </button>
+      <button id="btn-collecter-donnees" class="mat-button mat-button-success" onclick="runGAS('collecterDonneesProfesseurs', this.id)" title="Importe les données depuis les feuilles de collecte des professeurs">
+        <i class="material-icons mat-button-icon">cloud_download</i> Collecter Données
+      </button>
+      <div class="divider"></div>
+      <button id="btn-consolider" class="mat-button mat-button-accent" onclick="runGAS('consoliderDonnees', this.id)" title="Fusionne et consolide les données collectées">
+        <i class="material-icons mat-button-icon">merge_type</i> Consolider Données
+      </button>
+      <button id="btn-verifier" class="mat-button mat-button-accent" onclick="runGAS('verifierDonnees', this.id)" title="Vérifie l'intégrité et la cohérence des données">
+        <i class="material-icons mat-button-icon">check_circle_outline</i> Vérifier Données
+      </button>
+      <div class="divider"></div>
+      <!-- NOUVEAU BOUTON COMPTER SOURCES -->
+      <button id="btn-compter-sources" class="mat-button mat-button-primary" onclick="runGAS('compterEffectifsOptionsEtLangues', this.id)" title="Analyse les codes D et A dans les classes sources et affiche les statistiques en temps réel">
+        <i class="material-icons mat-button-icon">assessment</i> COMPTER SOURCES
+      </button>
+    </div>
+  </div>
+</div>
+
+  <!-- Section RÉPARTITION -->
+  <div class="mat-accordion">
+     <div class="mat-expansion-panel" id="section-repartition">
+       <!-- Header -->
+       <div class="mat-header" onclick="togglePanel(this)">
+         <i class="material-icons mat-header-icon">shuffle</i>
+         <div class="mat-header-title">RÉPARTITION</div>
+         <i class="material-icons mat-header-expand">expand_more</i>
+       </div>
+       <!-- Content -->
+       <div class="mat-content">
+         <button id="btn-analyser-reserver" class="mat-button mat-button-warning" onclick="runGAS('ouvrirInterfaceReservation', this.id)" title="Ouvre l'interface pour analyser les données et définir les réservations d'élèves">
+            <i class="material-icons mat-button-icon">manage_search</i>
+            <span><span>Analyser</span><span>& Réserver</span></span>
+         </button>
+         <div class="divider"></div>
+         <button id="btn-repartir-tout" class="mat-button mat-button-primary" onclick="runGAS('executerPhases1a3', this.id)" title="Lance les phases 1 à 3 de la répartition automatique des élèves">
+            <i class="material-icons mat-button-icon">auto_awesome</i> Répartir Tout
+         </button>
+         <div class="divider"></div>
+          <p style="font-size: 13px; color: #555; margin-bottom: 10px;">Répartitions spécifiques :</p>
+         <button id="btn-options" class="mat-button" onclick="runGAS('repartirOptions', this.id)" title="Répartit les élèves selon leurs options">
+            <i class="material-icons mat-button-icon">school</i> OPTIONS
+         </button>
+         <button id="btn-codes" class="mat-button" onclick="runGAS('repartirCodes', this.id)" title="Répartit les élèves selon les codes spécifiques">
+            <i class="material-icons mat-button-icon">people_alt</i> CODES
+         </button>
+         <button id="btn-parite" class="mat-button" onclick="runGAS('repartirParite', this.id)" title="Équilibre la parité dans les classes">
+            <i class="material-icons mat-button-icon">balance</i> PARITÉ
+         </button>
+         
+       </div>
+     </div>
+  </div>
+
+  <!-- Section OPTIMISATION avec Phase4 intégrée -->
+<!-- Section OPTIMISATION complète avec Phase4, Variante B et Swaps manuels -->
+<div class="mat-accordion">
+  <div class="mat-expansion-panel" id="section-optimisation">
+    <!-- Header -->
+    <div class="mat-header" onclick="togglePanel(this)">
+      <i class="material-icons mat-header-icon">auto_fix_high</i>
+      <div class="mat-header-title">OPTIMISATION</div>
+      <i class="material-icons mat-header-expand">expand_more</i>
+    </div>
+
+    <div class="mat-content">
+      <div class="mat-content-inner-optimisation">
+
+        <!-- === Homogénéisation Phase 4 === -->
+        <div class="phase4-container">
+          <div class="phase4-info-box">
+            <i class="material-icons" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">info</i>
+            Homogénéisation
+          </div>
+
+          <div style="margin-bottom: 12px; font-weight:500; color: #3c4043;">Sélectionnez les critères à équilibrer :</div>
+
+          <div class="phase4-checkbox-group">
+            <label title="Les élèves avec difficultés de comportement seront équitablement répartis entre les classes">
+              <input type="checkbox" id="cbCom"> Équilibrer COM = 1
+            </label>
+            <label title="Les élèves ayant d'excellents résultats seront équitablement répartis entre les classes">
+              <input type="checkbox" id="cbTra"> Équilibrer TRA = 4
+            </label>
+            <label title="Les élèves très participatifs seront équitablement répartis entre les classes">
+              <input type="checkbox" id="cbPart"> Équilibrer PART = 4
+            </label>
+          </div>
+
+          <div style="margin-top: 16px;">
+            <button onclick="lancerOptimisation()" class="mat-button mat-button-primary">
+              <i class="material-icons mat-button-icon">psychology</i> Optimiser la Répartition
+            </button>
+            <button onclick="reinitialiserOptimisation()" class="mat-button" style="margin-top: 10px;">
+              <i class="material-icons mat-button-icon">refresh</i> Réinitialiser
+            </button>
+            <div id="loadingIndicator" style="display:none; margin-top: 10px;">
+              <div class="spinner"></div>
+              <span>Optimisation en cours...</span>
+            </div>
+          </div>
+
+          <div id="resultBox" class="phase4-result" role="status" aria-live="polite"></div>
+        </div>
+
+        <!-- === Variante B === -->
+        <div class="phase4-container" style="margin-top:32px; border-top:1px solid #eee; padding-top:20px;">
+          <div class="phase4-info-box">
+            <i class="material-icons" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">science</i>
+            <b>VARIANTE B (Scores)</b>
+          </div>
+
+          <div style="margin-bottom: 12px; font-weight:500; color: #3c4043;">Scores à équilibrer :</div>
+
+          <div class="phase4-checkbox-group">
+            <label><input type="checkbox" id="cbVB_COM"> Scores COM</label>
+            <label><input type="checkbox" id="cbVB_TRA"> Scores TRA</label>
+            <label><input type="checkbox" id="cbVB_PART"> Scores PART</label>
+          </div>
+
+          <div style="margin-top: 16px; display:flex; flex-direction:column; gap:10px;">
+            <button onclick="lancerOptimisationB()" class="mat-button mat-button-primary">
+              <i class="material-icons mat-button-icon">psychology_alt</i> Variante SCORES
+            </button>
+            <button onclick="reinitialiserOptimisationB()" class="mat-button">
+              <i class="material-icons mat-button-icon">refresh</i> Réinitialiser VB
+            </button>
+            <div id="loadingIndicatorB" style="display:none; margin-top: 10px;">
+              <div class="spinner"></div>
+              <span>Optimisation Variante B en cours...</span>
+            </div>
+          </div>
+
+          <div id="resultBoxB" class="phase4-result" role="status" aria-live="polite" style="margin-top:10px;"></div>
+        </div>
+
+        <!-- === SWAP MANUEL === -->
+        <div class="phase4-container" style="margin-top:32px; border-top:1px solid #eee; padding-top:20px;">
+          <div class="phase4-info-box">
+            <i class="material-icons" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">swap_horiz</i>
+            <b>Swaps manuels</b>
+          </div>
+
+          <!-- Échange -->
+          <div class="mat-form-section" style="margin-top: 10px;">
+            <label class="mat-label">Échanger deux élèves (ID1 ⇄ ID2)</label>
+            <div class="mat-input-group">
+              <input type="text" id="swapId1" class="mat-input" placeholder="ID élève 1">
+              <input type="text" id="swapId2" class="mat-input" placeholder="ID élève 2">
+            </div>
+            <button onclick="swapConsoleIDs()" class="mat-button mat-button-primary" style="margin-top: 8px;">
+              <i class="material-icons mat-button-icon">sync_alt</i> Échanger
+            </button>
+          </div>
+
+          <!-- Déplacement -->
+          <div class="mat-form-section" style="margin-top: 16px;">
+            <label class="mat-label">Déplacer un élève vers une classe</label>
+            <input type="text" id="deplId" class="mat-input" placeholder="ID élève à déplacer" style="margin-bottom: 6px;">
+            <input type="text" id="deplClasse" class="mat-input" placeholder="Classe cible (ex: 3°4TEST)">
+            <button onclick="deplacementConsole()" class="mat-button mat-button-primary" style="margin-top: 8px;">
+              <i class="material-icons mat-button-icon">login</i> Déplacer
+            </button>
+          </div>
+        </div>
+
+        <div class="divider" style="margin-top: 20px;"></div>
+
+      </div> <!-- .mat-content-inner-optimisation -->
+    </div> <!-- .mat-content -->
+  </div> <!-- .mat-expansion-panel -->
+</div> <!-- .mat-accordion -->
+  
+  <!-- Section FINALISATION -->
+  <div class="mat-accordion">
+    <div class="mat-expansion-panel" id="section-finalisation">
+      <div class="mat-header" onclick="togglePanel(this)">
+        <i class="material-icons mat-header-icon">flag</i>
+        <div class="mat-header-title">FINALISATION</div>
+        <i class="material-icons mat-header-expand">expand_more</i>
+      </div>
+      <div class="mat-content">
+  <div class="phase5-container">
+    <!-- NOUVEAU BOUTON INTERFACE EN HAUT -->
+    <button class="mat-button mat-button-accent" onclick="window.open('https://script.google.com/macros/s/AKfycbziFjcYZrD4aqbiIGwWME2zcfWNtEmA3psuQOA572--P3fgOTywo3zv2J-fzcjZNyPD/exec', '_blank')" id="btn-interface" title="Ouvre l'interface web dans un nouvel onglet">
+      <i class="material-icons mat-button-icon">web</i> INTERFACE
+    </button>
+    
+    <div class="divider"></div>
+    
+    <div class="phase5-title">Phase 5 : Finalisation des Classes</div>
+    <div id="classList"></div>
+    <div class="options-section">
+      <label><input type="checkbox" id="hideTmpSheets"> Masquer les feuilles temporaires après finalisation</label>
+      <label><input type="checkbox" id="pdfColor"> PDF en couleur</label>
+    </div>
+    <div class="button-group">
+      <button class="mat-button mat-button-primary" onclick="runAction('finaliser')" id="btn-finaliser">
+        <i class="material-icons mat-button-icon">done_all</i> Finaliser
+      </button>
+      <button class="mat-button" onclick="runAction('exporterPDF')" id="btn-export-pdf">
+        <i class="material-icons mat-button-icon">picture_as_pdf</i> Exporter PDF
+      </button>
+      <button class="mat-button" onclick="runAction('exporterExcel')" id="btn-export-excel">
+        <i class="material-icons mat-button-icon">table_view</i> Exporter Excel
+      </button>
+      <button class="mat-button reset-button" onclick="runAction('reinitialiser')" id="btn-reinit">
+        <i class="material-icons mat-button-icon">delete_forever</i> Réinitialiser
+      </button>
+    </div>
+    <div id="phase5-loading" style="display:none; margin-top: 10px;">
+      <div class="spinner"></div>
+      <span id="phase5-loading-message">Traitement en cours...</span>
+    </div>
+    <div id="phase5-status" style="margin-top: 10px; color: #d93025;"></div>
+  </div>
+</div>
+
+  <!-- Nouvelle section STATISTIQUES -->
+  <div class="mat-accordion">
+    <div class="mat-expansion-panel" id="section-statistiques">
+      <!-- Header -->
+      <div class="mat-header" onclick="togglePanel(this)">
+        <i class="material-icons mat-header-icon">assessment</i>
+        <div class="mat-header-title">STATISTIQUES</div>
+        <i class="material-icons mat-header-expand">expand_more</i>
+      </div>
+      <!-- Content -->
+      <div class="mat-content">
+        <button id="btn-stats-sources"
+        class="mat-button mat-button-stats"
+        onclick="runGAS('ouvrirStatistiquesSources', this.id)"
+        title="Affiche les statistiques des classes sources">
+  <i class="material-icons mat-button-icon">source</i>
+  Classes Sources
+</button>
+        <button id="btn-stats-test" class="mat-button mat-button-stats" onclick="runGAS('afficherStatistiquesTest', this.id)" title="Affiche les statistiques des classes TEST">
+          <i class="material-icons mat-button-icon">science</i> Classes TEST
+        </button>
+    <button id="btn-stats-def" class="mat-button mat-button-stats" onclick="runGAS('afficherStatistiquesDef', this.id)" title="Affiche les statistiques des classes définitives">
+          <i class="material-icons mat-button-icon">verified</i> Classes DEF
+        </button>
+        
+        <div class="divider"></div>
+        
+        <button id="btn-stats-comparaison" class="mat-button mat-button-stats" onclick="runGAS('comparerStatistiques', this.id)" title="Compare les statistiques entre classes TEST et DEF">
+          <i class="material-icons mat-button-icon">compare_arrows</i> Comparer TEST/DEF
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nouvelle section ONGLETS -->
+  <div class="mat-accordion">
+    <div class="mat-expansion-panel" id="section-onglets">
+      <!-- Header -->
+      <div class="mat-header" onclick="togglePanel(this); chargerOnglets();">
+        <i class="material-icons mat-header-icon">tab</i>
+        <div class="mat-header-title">ONGLETS</div>
+        <i class="material-icons mat-header-expand">expand_more</i>
+      </div>
+      <!-- Content -->
+      <div class="mat-content">
+        <div id="onglets-controle">
+  <!-- Actions principales en haut -->
+  <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+    <!-- Bouton principal à gauche -->
+    <button id="btn-appliquer-visibilite" class="mat-button mat-button-primary" onclick="appliquerVisibiliteOnglets()" style="flex: 1;" title="Applique les changements de visibilité pour les onglets sélectionnés">
+      <i class="material-icons mat-button-icon">visibility</i> APPLIQUER VISIBILITÉ
+    </button>
+    
+    <!-- Boutons secondaires à droite -->
+    <button class="mat-button" style="min-width: auto; padding: 8px;" onclick="selectionnerOnglets('tous')" title="Sélectionne tous les onglets">
+      <i class="material-icons">select_all</i>
+    </button>
+    <button class="mat-button" style="min-width: auto; padding: 8px;" onclick="selectionnerOnglets('aucun')" title="Désélectionne tous les onglets">
+      <i class="material-icons">clear_all</i>
+    </button>
+  </div>
+  
+  <p style="font-size: 13px; color: #555; margin: 5px 0;">Cochez les onglets à afficher, décochez pour masquer :</p>
+  
+  <div id="onglets-liste" class="onglets-liste">
+    <p style="text-align: center; color: #666;"><i>Chargement des onglets...</i></p>
+  </div>
+  
+  <div id="onglets-loading" style="display:none; margin-top: 10px;">
+    <div class="spinner"></div>
+    <span>Mise à jour des onglets...</span>
+  </div>
+</div>
+    </div>
+  </div>
+
+  <script>
+    // --- Utilitaires Visuels (Spinner, Success, Error) ---
+    const originalButtonHtml = {}; // Stocker l'HTML original des boutons
+
+    function showSpinner(buttonId, text, progress = null) {
+      const btn = document.getElementById(buttonId);
+      if (!btn) return;
+      if (!originalButtonHtml[buttonId]) {
+          originalButtonHtml[buttonId] = btn.innerHTML;
+      }
+      btn.disabled = true;
+      
+      // Si on a une valeur de progression, afficher avec pourcentage
+      if (progress !== null) {
+        btn.innerHTML = `
+          <div style="display:flex;align-items:center;">
+            <i class="material-icons mat-button-icon spinner">sync</i>
+            <div>
+              <div>${text || 'Chargement...'}</div>
+              <div style="font-size:11px;margin-top:2px;">${Math.round(progress)}%</div>
+            </div>
+          </div>`;
+      } else {
+        // Affichage standard sans pourcentage
+        btn.innerHTML = `<i class="material-icons mat-button-icon spinner">sync</i> ${text || 'Chargement...'}`;
+      }
+    }
+
+    function showSuccess(buttonId, text) {
+      const btn = document.getElementById(buttonId);
+      if (!btn) return;
+      btn.classList.add('mat-button-success');
+      btn.innerHTML = `<i class="material-icons mat-button-icon">check_circle</i> ${text || 'Succès'}`;
+      // Restaurer après délai
+      setTimeout(() => restoreButton(buttonId), 2500);
+    }
+
+    function showError(buttonId, text) {
+      const btn = document.getElementById(buttonId);
+      if (!btn) return;
+      btn.classList.add('mat-button-warning');
+      btn.innerHTML = `<i class="material-icons mat-button-icon">error_outline</i> ${text || 'Erreur'}`;
+      // Restaurer après délai plus long pour erreur
+      setTimeout(() => restoreButton(buttonId), 3500);
+    }
+
+    function restoreButton(buttonId) {
+      const btn = document.getElementById(buttonId);
+      if (!btn) return;
+      btn.classList.remove('mat-button-success', 'mat-button-warning');
+      if (originalButtonHtml[buttonId]) {
+        btn.innerHTML = originalButtonHtml[buttonId];
+        delete originalButtonHtml[buttonId];
+      }
+      btn.disabled = false;
+      // Redésactiver Finaliser si besoin
+      if (buttonId === 'btn-finaliser') {
+          const anyChecked = document.querySelector('#classes-selection input[type="checkbox"]:checked');
+          btn.disabled = !anyChecked;
+      }
+    }
+
+    // --- Fonction Accordéon (SIMPLE) ---
+    function togglePanel(headerElement) {
+      const panel = headerElement.closest('.mat-expansion-panel');
+      if (panel) {
+        panel.classList.toggle('mat-expanded');
+      } else {
+        console.error("Impossible de trouver .mat-expansion-panel parent pour", headerElement);
+      }
+    }
+
+    // --- Fonction Générique pour Appeler Google Apps Script ---
+    /**
+     * Appelle une fonction Google Apps Script avec gestion visuelle et des erreurs.
+     * @param {string} functionName - Nom de la fonction .gs à appeler.
+     * @param {string} buttonId - ID du bouton cliqué pour le retour visuel.
+     * @param {Array<any>} [args=[]] - Tableau des arguments à passer à la fonction .gs.
+     * @param {string} [loadingText='Chargement...'] - Texte pendant le chargement.
+     * @param {string} [successText='Terminé'] - Texte en cas de succès (si pas de message retourné).
+     */
+    function runGAS(functionName, buttonId, args = [], loadingText = 'Chargement...', successText = 'Terminé') {
+      if (buttonId) showSpinner(buttonId, loadingText);
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          console.log(`Succès ${functionName}:`, result);
+          if (buttonId) {
+            // Afficher le message retourné s'il existe, sinon le texte de succès par défaut
+             if (typeof result === 'string' && result.trim() !== '') {
+                  showSuccess(buttonId, successText); // Montrer Succès visuel d'abord
+                  alert(result); // Puis afficher le message détaillé
+             } else if (result && result.message && result.success) { // Si objet avec message
+                  showSuccess(buttonId, successText);
+                  alert(result.message);
+             } else if (result && result.message && !result.success) { // Si objet d'erreur structuré
+                  showError(buttonId, 'Échec');
+                  alert(`Échec ${functionName}: ${result.message}`);
+             }
+             else {
+                  showSuccess(buttonId, successText); // Juste le succès visuel
+             }
+          } else if (typeof result === 'string' && result.trim() !== '') {
+               alert(result); // Pour les appels sans bouton associé
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error(`Erreur ${functionName}:`, error);
+          if (buttonId) {
+            showError(buttonId, 'Erreur');
+          }
+          // Afficher un message d'erreur plus technique
+          alert(`Erreur technique lors de l'appel à '${functionName}':\n${error.message || error}`);
+        })
+        [functionName].apply(null, args); // Appel dynamique de la fonction .gs avec arguments
+    }
+
+    // --- SCRIPTS POUR PHASE 4 (OPTIMISATION) ---
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialiser les cases à cocher d'optimisation
+      ['cbCom', 'cbTra', 'cbPart'].forEach(id => {
+        const saved = localStorage.getItem(id);
+        if (saved === 'true') document.getElementById(id).checked = true;
+      });
+      document.querySelectorAll('.phase4-checkbox-group input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', function() { localStorage.setItem(this.id, this.checked); });
+      });
+    });
+
+    // Lancer l'optimisation (Phase 4 - Principale)
+      function lancerOptimisation() {
+      const scenarios = [];
+      if (document.getElementById('cbCom').checked) scenarios.push('COM');
+      if (document.getElementById('cbTra').checked) scenarios.push('TRA');
+      if (document.getElementById('cbPart').checked) scenarios.push('PART');
+      
+      if (scenarios.length === 0) {
+        alert("Veuillez sélectionner au moins un critère à équilibrer.");
+        return;
+      }
+
+      // Plus besoin de confirmation ici si le wrapper V14 appelle InitMobilite
+      // if (!confirm("Cette opération va :\n1. EFFACER et RECALCULER la mobilité des élèves (colonne FIXE)\n2. Lancer l'optimisation avec les critères sélectionnés\n\nContinuer ?")) {
+      //   return;
+      // }
+
+      const buttonId = 'btnOptimiser';
+      // Utiliser showSpinner pour gérer l'état du bouton et le texte
+      showSpinner(buttonId, 'Optimisation V14 en cours...'); 
+      document.getElementById('loadingIndicator').style.display = 'flex'; // Garder pour le spinner séparé si showSpinner ne le gère pas
+      document.getElementById('resultBox').innerHTML = ''; // Vider les anciens résultats
+      document.getElementById('resultBox').style.display = 'none';
+      
+      google.script.run
+        .withSuccessHandler(function(res) { 
+          // restoreButton sera appelé dans afficheResultatsV14 ou afficheErreurV14
+          afficheResultatsV14(res, buttonId); 
+        })
+        .withFailureHandler(function(err) { 
+          // restoreButton sera appelé dans afficheResultatsV14 ou afficheErreurV14
+          afficheErreurV14(err, buttonId); 
+        })
+        .lancerOptimisationV14_Wrapper(scenarios); // Cet appel lance InitMobilite puis le moteur V14 côté serveur
+    }
+    
+    function reinitialiserOptimisation() { /* ... votre code existant ... */ }
+
+  /**
+   * Affiche les résultats de l'optimisation V14 dans l'interface HTML.
+   * @param {object} res - L'objet de résultat retourné par la fonction serveur.
+   * @param {string} buttonId - L'ID du bouton qui a lancé l'optimisation.
+   */
+   function afficheResultatsV14(res, buttonId) {
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    if (loadingIndicator) {
+      loadingIndicator.style.display = 'none';
+    }
+
+    const resultBox = document.getElementById('resultBox');
+    if (!resultBox) {
+      console.error("ERREUR HTML: L'élément #resultBox est introuvable.");
+      showError(buttonId, 'Erreur UI'); 
+      return; 
+    }
+    resultBox.innerHTML = ''; 
+    resultBox.style.display = 'block'; 
+
+    // Vérifier la validité de la réponse du serveur
+    if (!res || res.success === undefined) { 
+      console.error("Réponse serveur invalide:", res);
+      resultBox.innerHTML = `<div style="color:#c0392b;">Erreur: Réponse invalide du serveur.</div>`;
+      showError(buttonId, 'Erreur Réponse'); 
+      return; 
+    }
+
+    // Gérer l'échec de l'optimisation côté serveur
+    if (!res.success) {
+      console.error("Échec de l'optimisation (serveur):", res);
+      resultBox.innerHTML = 
+        `<div style="color:#c0392b;">
+           <strong>⚠️ Échec Optimisation :</strong><br>
+           ${res.message || "Erreur inconnue."}
+           ${res.errorCode ? ` (Code: ${res.errorCode})` : ''}
+         </div>`;
+      showError(buttonId, 'Échec Optim.'); 
+      return;
+    }
+
+    // L'optimisation a réussi
+    showSuccess(buttonId, 'Optimisation Réussie'); 
+
+    const nbSwaps = res.nbSwaps || 0;
+    const journal = res.journal || []; 
+    let swapsHtml = "";
+
+    if (journal.length > 0) {
+      swapsHtml = `
+        <div class="swap-wrapper" style="margin-top: 15px; margin-bottom: 15px;">
+          <h4 style="margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #ccc;">
+            Détail des ${nbSwaps} échange${nbSwaps !== 1 ? 's' : ''}
+          </h4>
+          <!-- PAS D'ASCENSEUR POUR CE TEST -->
+          <ul id="swapList" class="swap-list" style="margin:0; padding:0; list-style-type:none; max-height: none; overflow-y: visible;">
+            ${journal.map((s, i) => {
+              const eleve1Display = s.eleve1Nom || `ID:${s.eleve1ID || '?'}`; 
+              const eleve2Display = s.eleve2Nom || `ID:${s.eleve2ID || '?'}`; 
+              const classeOrigineE1 = s.classe1 || '?';
+              const classeOrigineE2 = s.classe2 || '?';
+              const classeDestinationE1 = classeOrigineE2;
+              const classeDestinationE2 = classeOrigineE1;
+              const impactDisplay = (s.impact !== undefined && s.impact !== null) ? s.impact.toFixed(3) : 'N/A';
+
+              return `<li class="swap-item" style="padding: 4px 0; border-bottom: 1px dotted #eee; line-height:1.4;">
+                        <span style="color: #555; font-size: 0.9em;">#${i+1}:</span> 
+                        <strong>${eleve1Display}</strong> <span style="color: #777;">(${classeOrigineE1} → ${classeDestinationE1})</span>
+                         ↔  
+                        <strong>${eleve2Display}</strong> <span style="color: #777;">(${classeOrigineE2} → ${classeDestinationE2})</span>
+                        <span class="swap-impact" style="color:green; font-size:0.9em; margin-left: 5px;">(Δ ${impactDisplay})</span>
+                      </li>`;
+            }).join('')}
+          </ul>
+        </div>`;
+    } else if (nbSwaps > 0) {
+      swapsHtml = `<p>${nbSwaps} échange(s) effectué(s), mais le détail du journal n'est pas affiché.</p>`;
+    } else {
+      swapsHtml = '<p style="color:#777; margin-top:15px;">Aucun échange effectué.</p>';
+    }
+
+    // Assemblage final du HTML pour resultBox (UNIQUEMENT LE JOURNAL)
+    resultBox.innerHTML = `
+      <div style="font-size: 1.1em; font-weight:500; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #e0e0e0;">
+        Journal des Échanges V14
+      </div>
+      ${swapsHtml}
+      <div class="result-summary" style="margin-top:16px; padding-top:10px; border-top:1px solid #e0e0e0; font-weight:bold; text-align:center;">
+          Total : ${nbSwaps} échange${nbSwaps !== 1 ? "s" : ""} effectué${nbSwaps !== 1 ? "s" : ""}.
+      </div>
+      <div style="font-size:0.9em; color:#555; margin-top:10px; padding-top:10px; border-top:1px dashed #eee; text-align:center;">
+        <em>${res.message || "Opération terminée."}</em>
+      </div>`;
+  }
+
+  // Assurez-vous que afficheErreurV14 est aussi simple et appelle showError
+  function afficheErreurV14(err, buttonId) {
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    if(loadingIndicator) loadingIndicator.style.display = 'none';
+    
+    const box = document.getElementById('resultBox');
+    if (box) {
+        box.innerHTML = `<div style="color:#c0392b; padding:10px; border:1px solid #c0392b; border-radius:4px;">
+                           <strong>⚠️ Erreur Optimisation :</strong><br>
+                           ${err.message || String(err)}
+                         </div>`;
+        box.style.display = 'block';
+    }
+    showError(buttonId, 'Erreur'); 
+  }
+  
+  // Vous aurez toujours besoin de filtrerSwaps si l'input de recherche est présent
+  function filtrerSwaps(txt){
+    txt = String(txt || "").trim().toLowerCase();
+    document.querySelectorAll("#swapList .swap-item").forEach(li => {
+      const match = li.textContent.toLowerCase().includes(txt);
+      li.style.display = match ? "" : "none";
+    });
+  }
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////// ...
+
+  // ... (votre fonction afficheErreurV14 reste ici, elle est appelée par afficheResultatsV14 en cas de besoin) ...
+  // ... (votre fonction filtrerSwaps reste ici) ...
+
+    function afficheErreurV14(err, buttonId) {
+      // restoreButton(buttonId); // Plus besoin ici si showError le fait
+      showError(buttonId, 'Erreur Optim.'); // Indiquer une erreur
+
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      if(loadingIndicator) loadingIndicator.style.display = 'none';
+      
+      const box = document.getElementById('resultBox');
+      if (!box) {
+          console.error("HTML Error: Element #resultBox non trouvé pour afficher l'erreur.");
+          alert("Erreur UI (resultBox non trouvé pour erreur): " + (err.message || err));
+          return;
+      }
+      box.innerHTML = `<div style="color:#c0392b; padding:10px; border:1px solid #c0392b; border-radius:4px;">
+                         <strong>⚠️ Erreur lors de l'optimisation :</strong><br>
+                         ${err.message || String(err)}
+                       </div>`;
+      box.style.display = 'block';
+    }
+    
+
+    // Filtrer la liste des swaps (reste inchangée)
+    function filtrerSwaps(txt){
+      txt = txt.trim().toLowerCase();
+      let visibleCount = 0;
+      document.querySelectorAll("#swapList .swap-item").forEach(li => {
+        const match = li.textContent.toLowerCase().includes(txt);
+        li.style.display = match ? "" : "none";
+        if (match) visibleCount++;
+      });
+    }
+    
+    // --- SCRIPTS POUR PHASE 5 (FINALISATION) ---
+    // (Le reste du code Javascript reste identique à partir d'ici)
+    // Chargement initial des classes pour Phase5
+    document.addEventListener('DOMContentLoaded', function() {
+      chargerClassesDisponibles();
+    });
+    
+    // Sélectionner/Désélectionner toutes les classes
+    function selectionnerTout(checked) {
+      document.querySelectorAll('#classList input[type="checkbox"]').forEach(cb => {
+        cb.checked = checked;
+      });
+    }
+    
+    // Charger la liste des classes disponibles pour finalisation
+    function chargerClassesDisponibles() {
+      const container = document.getElementById('classList');
+      setPhase5Loading(true, "Chargement des classes...");
+      
+      google.script.run
+        .withSuccessHandler(populateClassList)
+        .withFailureHandler(showPhase5Error)
+        .Phase5_GetClassesDisponiblesPourUI();
+    }
+    
+    // Afficher la liste des classes avec checkboxes
+    function populateClassList(result) {
+      setPhase5Loading(false);
+      const container = document.getElementById('classList');
+      if (!result || !result.success) {
+        container.innerHTML = '<span style="color: #d93025;">Erreur chargement classes.</span>';
+        showPhase5Error(result || { message: "Erreur inconnue chargement classes." });
+        return;
+      }
+
+      const classes = result.classes || [];
+      const defExists = result.classesAvecDef || [];
+      container.innerHTML = ''; // Vider
+
+      if (classes.length === 0) {
+        container.innerHTML = 'Aucune classe TEST trouvée à finaliser.';
+        return;
+      }
+
+      classes.forEach(className => {
+        const div = document.createElement('div');
+        div.className = 'class-item';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `chk-${className}`;
+        checkbox.value = className;
+        const label = document.createElement('label');
+        label.htmlFor = `chk-${className}`;
+        label.textContent = className;
+        if (defExists.includes(className)) {
+          label.innerHTML += ' <span style="color: #fbbc04; font-size: 0.9em;" title="Une version DEF existe déjà pour cette classe">(DEF existe)</span>';
+        }
+        div.appendChild(checkbox);
+        div.appendChild(label);
+        container.appendChild(div);
+      });
+    }
+    
+    // Exécuter une action de Phase 5
+    function runAction(actionName) {
+      const selectedClasses = Array.from(document.querySelectorAll('#classList input[type="checkbox"]:checked')).map(cb => cb.value);
+      const hideTmp = document.getElementById('hideTmpSheets').checked;
+      const pdfColor = document.getElementById('pdfColor').checked;
+
+      if (actionName !== 'reinitialiser' && selectedClasses.length === 0) {
+        showStatus("Veuillez sélectionner au moins une classe.", "warning");
+        return;
+      }
+      
+      if (actionName === 'reinitialiser' && !confirm("Êtes-vous sûr de vouloir supprimer tous les onglets DEF et les bilans ? Cette action est irréversible.")) {
+          return;
+      }
+
+      setPhase5Loading(true, `Action "${actionName}" en cours...`);
+      showStatus(""); // Clear previous status
+
+      const params = {
+        action: actionName,
+        classes: selectedClasses,
+        hideTmp: hideTmp,        
+        avecColoration: pdfColor 
+      };
+
+      google.script.run
+        .withSuccessHandler(handlePhase5Result)
+        .withFailureHandler(showPhase5Error)
+        .Phase5_ProcessActionPourUI(params);
+    }
+    
+    // Gérer le résultat d'une action Phase5
+    function handlePhase5Result(result) {
+      setPhase5Loading(false);
+      if (!result) {
+        showPhase5Error({ message: "Réponse invalide du serveur." });
+        return;
+      }
+      showStatus(result.message || `Action terminée ${result.success ? 'avec succès' : 'en échec'}.`, 
+                result.success ? 'success' : 'error');
+
+      // Ouvrir les liens de fichiers si présents
+      if (result.files && result.files.length > 0) {
+         result.files.forEach(file => {
+           if (file.url) {
+             // Proposer à l'utilisateur d'ouvrir le lien
+             const link = document.createElement('a');
+             link.href = file.url;
+             link.textContent = `Télécharger/Ouvrir ${file.name}`;
+             link.target = '_blank';
+             link.style.display = 'block';
+             link.style.marginTop = '10px';
+             document.getElementById('statusBox').appendChild(link); // Attention statusBox n'existe pas, c'est phase5-status
+           }
+         });
+      }
+
+      // Si réinitialisation ou finalisation réussie, recharger la liste des classes
+      if ((result.action === 'reinitialiser' || result.action === 'finaliser') && result.success) {
+         setPhase5Loading(true, "Rechargement liste des classes...");
+         google.script.run
+           .withSuccessHandler(populateClassList)
+           .withFailureHandler(showPhase5Error)
+           .Phase5_GetClassesDisponiblesPourUI();
+      }
+    }
+    
+    // Affichage du statut pour Phase5
+    function showStatus(message, type = 'info') {
+      const statusBox = document.getElementById('phase5-status'); // Corrigé pour utiliser l'ID existant
+      statusBox.className = type; // success/error/warning/info
+      statusBox.textContent = message;
+      
+      if (type === 'success') {
+        statusBox.style.color = '#1e8e3e';
+      } else if (type === 'error') {
+        statusBox.style.color = '#d93025';
+      } else if (type === 'warning') {
+        statusBox.style.color = '#f9ab00';
+      } else {
+        statusBox.style.color = '#1a73e8'; // Ou #333 pour info neutre
+      }
+    }
+    
+    // Afficher les erreurs Phase5
+    function showPhase5Error(error) {
+      setPhase5Loading(false);
+      const message = error ? (error.message || String(error)) : "Erreur inconnue.";
+      showStatus(`Erreur technique: ${message}`, 'error');
+      console.error("Erreur GAS:", error);
+    }
+    
+    // Gérer l'état de chargement pour Phase5
+    function setPhase5Loading(isLoading, message = "Traitement en cours...") {
+      const loadingIndicator = document.getElementById('phase5-loading'); // Corrigé
+      const loadingMessage = document.getElementById('phase5-loading-message'); // Corrigé
+      
+      if (loadingIndicator) loadingIndicator.style.display = isLoading ? 'flex' : 'none';
+      if (isLoading && loadingMessage) {
+        loadingMessage.textContent = message;
+        showStatus(message, 'info'); // Affiche aussi dans la status-box
+      }
+      document.querySelectorAll('.phase5-container button, .phase5-container input').forEach(el => el.disabled = isLoading); // Désactiver inputs aussi
+    }
+    
+
+// Charger la liste des onglets
+function chargerOnglets() {
+  const ongletsListe = document.getElementById('onglets-liste');
+  
+  // Afficher le spinner de chargement
+  const loadingOnglets = document.getElementById('onglets-loading');
+  if(loadingOnglets) loadingOnglets.style.display = 'flex';
+  
+  const estDejaRemplie = ongletsListe.querySelector('.onglet-categorie');
+  
+  if (estDejaRemplie) {
+    if(loadingOnglets) loadingOnglets.style.display = 'none';
+    return;
+  }
+  
+  ongletsListe.innerHTML = '<p style="text-align: center; color: #666;"><i>Chargement des onglets...</i></p>';
+  const btnAppliquerVisibilite = document.getElementById('btn-appliquer-visibilite');
+  if(btnAppliquerVisibilite) btnAppliquerVisibilite.disabled = true;
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      if (result && result.success) {
+        afficherListeOnglets(result.onglets || []);
+      } else {
+        ongletsListe.innerHTML = '<p style="color: #d93025;">Erreur lors du chargement des onglets.</p>';
+        console.error("Erreur du serveur:", result);
+      }
+    })
+    .withFailureHandler(function(error) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      ongletsListe.innerHTML = '<p style="color: #d93025;">Erreur: ' + (error.message || 'Impossible de charger les onglets') + '</p>';
+      console.error("Erreur technique:", error);
+    })
+    .getListeOnglets();
+}
+
+// Afficher la liste des onglets avec catégorisation et protection
+function afficherListeOnglets(onglets, accesAdmin = false) {
+  const ongletsListe = document.getElementById('onglets-liste');
+  
+  if (!onglets || onglets.length === 0) {
+    ongletsListe.innerHTML = '<p style="text-align: center; color: #666;"><i>Aucun onglet disponible.</i></p>';
+    return;
+  }
+  
+  ongletsListe.innerHTML = '';
+  
+  // Ajout d'un compteur global
+  const totalOnglets = onglets.length;
+  const ongletsVisibles = onglets.filter(o => !o.masque).length;
+  
+  // Ajoutez une barre d'information en haut de la liste
+  const infoBar = document.createElement('div');
+  infoBar.className = 'info-bar';
+  infoBar.style.backgroundColor = '#f1f3f4';
+  infoBar.style.padding = '8px 12px';
+  infoBar.style.borderRadius = '4px';
+  infoBar.style.marginBottom = '12px';
+  infoBar.style.fontSize = '13px';
+  infoBar.style.display = 'flex';
+  infoBar.style.justifyContent = 'space-between';
+  
+  infoBar.innerHTML = `
+    <div>
+      <strong>${totalOnglets}</strong> onglets au total
+    </div>
+    <div>
+      <strong>${ongletsVisibles}</strong> visibles / <strong>${totalOnglets - ongletsVisibles}</strong> cachés
+    </div>
+  `;
+  
+  ongletsListe.appendChild(infoBar);
+  
+  // Catégoriser les onglets selon les besoins spécifiques
+  const categories = {
+    "ACCUEIL": [],
+    "TEST": [],
+    "DEF": [],
+    "STRUCTURE": [], // BILAN, PONDERATION, CONSOLIDATION, etc.
+    "SOURCES": [],   // Les onglets sources originaux (6°1, 6°2, etc.)
+    "STATISTIQUES": [],
+    "CONFIGURATION": [],
+    "AUTRES": []     // Nouvelle catégorie pour les onglets non classés
+  };
+  
+  // Catégoriser tous les onglets
+  onglets.forEach(onglet => {
+    const nom = onglet.nom;
+    let categorise = false;
+    
+    if (nom === "ACCUEIL") {
+      categories["ACCUEIL"].push(onglet);
+      categorise = true;
+    }
+    else if (nom.includes("TEST")) {
+      categories["TEST"].push(onglet);
+      categorise = true;
+    }
+    else if (nom.includes("DEF")) {
+      categories["DEF"].push(onglet);
+      categorise = true;
+    }
+    else if (["BILAN", "PONDERATION", "CONSOLIDATION", "_STRUCTURE", "000"].includes(nom) || nom.startsWith("_")) {
+      categories["STRUCTURE"].push(onglet);
+      categorise = true;
+    }
+    else if (nom === "STATISTIQUES" || nom.includes("STATS")) {
+      categories["STATISTIQUES"].push(onglet);
+      categorise = true;
+    }
+    else if (nom.includes("CONFIG")) {
+      categories["CONFIGURATION"].push(onglet);
+      categorise = true;
+    }
+    else if (/^\d+°\d+$/.test(nom) || nom.includes("SOURCE") || nom.startsWith("PROF")) {
+      categories["SOURCES"].push(onglet);
+      categorise = true;
+    }
+    
+    // Si l'onglet n'a pas été catégorisé, le mettre dans "AUTRES"
+    if (!categorise) {
+      categories["AUTRES"].push(onglet);
+    }
+  });
+  
+  // Ordre d'affichage des catégories
+  const ordreCategories = ["ACCUEIL", "SOURCES", "TEST", "DEF", "STATISTIQUES", "STRUCTURE", "CONFIGURATION", "AUTRES"];
+
+  ordreCategories.forEach(categorieNom => {
+    const listeOnglets = categories[categorieNom];
+    if (!listeOnglets || listeOnglets.length === 0) return;
+    
+    const estCategorieProtegee = ["STRUCTURE", "CONFIGURATION"].includes(categorieNom);
+    
+    const divCategorie = document.createElement('div');
+    divCategorie.className = 'onglet-categorie';
+    
+    const titreCategorie = document.createElement('div');
+    titreCategorie.className = 'onglet-categorie-titre';
+    titreCategorie.textContent = `${categorieNom} (${listeOnglets.length})` + (estCategorieProtegee && !accesAdmin ? ' 🔒' : '');
+    divCategorie.appendChild(titreCategorie);
+    
+    const itemsContainer = document.createElement('div');
+    itemsContainer.style.paddingLeft = '10px';
+    itemsContainer.style.marginBottom = '12px';
+    
+    if (estCategorieProtegee && !accesAdmin) {
+      const msgProtection = document.createElement('div');
+      msgProtection.style.padding = '10px';
+      msgProtection.style.color = '#666';
+      msgProtection.style.fontStyle = 'italic';
+      msgProtection.innerHTML = 'Catégorie protégée. <a href="#" onclick="demanderMotDePasseOnglets(\'' + categorieNom + '\'); return false;">Débloquer</a>';
+      itemsContainer.appendChild(msgProtection);
+    } else {
+      listeOnglets.sort((a, b) => a.nom.localeCompare(b.nom, undefined, { numeric: true, sensitivity: 'base' })); // Tri alphanumérique
+      
+      listeOnglets.forEach(onglet => {
+        const div = document.createElement('div');
+        div.className = 'onglet-item';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `onglet-${onglet.id}`;
+        checkbox.checked = !onglet.masque;
+        checkbox.dataset.ongletId = onglet.id;
+        
+        const label = document.createElement('label');
+        label.htmlFor = `onglet-${onglet.id}`;
+        label.textContent = onglet.nom;
+        
+        // Ajouter un style pour les nouveaux onglets (si vous avez un moyen de les détecter)
+        if (onglet.estNouveau) {
+          label.style.fontWeight = 'bold';
+          label.style.color = '#4285f4';
+          label.textContent += ' (nouveau)';
+        }
+        
+        div.appendChild(checkbox);
+        div.appendChild(label);
+        itemsContainer.appendChild(div);
+      });
+    }
+    
+    divCategorie.appendChild(itemsContainer);
+    ongletsListe.appendChild(divCategorie);
+  });
+  
+  const btnAppliquerVisibilite = document.getElementById('btn-appliquer-visibilite');
+  if(btnAppliquerVisibilite) btnAppliquerVisibilite.disabled = false;
+}
+
+// Fonction pour demander le mot de passe pour les onglets protégés
+function demanderMotDePasseOnglets(categorie) {
+  const motDePasse = prompt("Entrez le mot de passe administrateur pour débloquer la catégorie " + categorie + " :");
+  
+  if (motDePasse === null) return; // L'utilisateur a cliqué sur Annuler
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        alert("Mot de passe correct! Rechargement des onglets avec accès administrateur...");
+        chargerOngletsAvecAccesAdmin();
+      } else {
+        alert("Mot de passe incorrect. " + (result ? result.message : "Vérification échouée."));
+      }
+    })
+    .withFailureHandler(function(error) {
+      alert("Erreur technique lors de la vérification: " + (error.message || String(error)));
+    })
+    .verifierMotDePasseOnglets(motDePasse);
+}
+
+
+// Fonction pour charger les onglets avec droit admin
+function chargerOngletsAvecAccesAdmin() {
+  const ongletsListe = document.getElementById('onglets-liste');
+  const loadingOnglets = document.getElementById('onglets-loading');
+  if(loadingOnglets) loadingOnglets.style.display = 'flex';
+  
+  ongletsListe.innerHTML = '<p style="text-align: center; color: #666;"><i>Chargement des onglets...</i></p>';
+  const btnAppliquerVisibilite = document.getElementById('btn-appliquer-visibilite');
+  if(btnAppliquerVisibilite) btnAppliquerVisibilite.disabled = true;
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      if (result && result.success) {
+        afficherListeOnglets(result.onglets || [], true); // true = accès admin
+      } else {
+        ongletsListe.innerHTML = '<p style="color: #d93025;">Erreur lors du chargement des onglets.</p>';
+      }
+    })
+    .withFailureHandler(function(error) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      ongletsListe.innerHTML = '<p style="color: #d93025;">Erreur: ' + (error.message || 'Impossible de charger les onglets') + '</p>';
+    })
+    .getListeOnglets(); // Ré-appelle la même fonction, le côté serveur doit gérer l'état admin si besoin
+}
+
+// Sélectionner/Désélectionner tous les onglets visibles/modifiables
+function selectionnerOnglets(type) {
+    const checkboxes = document.querySelectorAll('#onglets-liste input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        // S'assurer que la checkbox n'est pas dans une section protégée non débloquée
+        const parentCategorie = cb.closest('.onglet-categorie');
+        const isProtectedAndLocked = parentCategorie && 
+                                     parentCategorie.querySelector('.onglet-categorie-titre').textContent.includes('🔒') &&
+                                     parentCategorie.querySelector('a[onclick*="demanderMotDePasseOnglets"]');
+        if (!isProtectedAndLocked) {
+             cb.checked = (type === 'tous');
+        }
+    });
+}
+
+// Appliquer les changements de visibilité
+function appliquerVisibiliteOnglets() {
+  const checkboxes = document.querySelectorAll('#onglets-liste input[type="checkbox"]');
+  const visibilites = Array.from(checkboxes).map(cb => ({
+    id: cb.dataset.ongletId,
+    visible: cb.checked
+  }));
+  
+  if (visibilites.length === 0) {
+    alert("Aucun onglet à modifier (ou sections protégées non débloquées).");
+    return;
+  }
+  
+  const loadingOnglets = document.getElementById('onglets-loading');
+  if(loadingOnglets) loadingOnglets.style.display = 'flex';
+  const btnAppliquerVisibilite = document.getElementById('btn-appliquer-visibilite');
+  if(btnAppliquerVisibilite) btnAppliquerVisibilite.disabled = true;
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      if(btnAppliquerVisibilite) btnAppliquerVisibilite.disabled = false;
+      
+      if (result && result.success) {
+        alert(`Visibilité des onglets mise à jour avec succès (${result.modifies || 0} modifications).`);
+        // Optionnel: Recharger la liste pour refléter l'état actuel (surtout si des onglets sont créés/supprimés en parallèle)
+        // chargerOnglets(); // Attention, peut annuler le déblocage admin si pas géré
+      } else {
+        alert("Erreur lors de la mise à jour de la visibilité des onglets: " + (result ? result.message : "Erreur inconnue"));
+      }
+    })
+    .withFailureHandler(function(error) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      if(btnAppliquerVisibilite) btnAppliquerVisibilite.disabled = false;
+      alert("Erreur technique: " + (error.message || error));
+    })
+    .modifierVisibiliteOnglets(visibilites);
+}
+
+// Fonction pour l'optimisation console (non utilisée dans cette UI, mais gardée si besoin)
+function setLoadingConsole(isLoading, message = "Traitement en cours...", progress = null, progressMax = null, treatedItems = []) {
+  const loadingIndicator = document.getElementById('loadingIndicatorConsole');
+  const loadingMessage = document.getElementById('loadingMessageConsole');
+  // ... (le reste de la fonction n'est pas pertinent pour la modification demandée)
+}
+function lancerOptimisationConsole() { /* ... */ }
+function exporterPDFConsole() { /* ... */ }
+function exporterExcelConsole() { /* ... */ }
+function afficheResultatsConsole(res) { /* ... */ }
+function afficheErreurConsole(err) { /* ... */ }
+
+// ================= LOGIQUE JAVASCRIPT POUR VARIANTE B =================
+    // (Cette section reste inchangée, elle est déjà correcte)
+    document.addEventListener('DOMContentLoaded', function() {
+      ['cbVB_COM', 'cbVB_TRA', 'cbVB_PART'].forEach(id => {
+        const cb = document.getElementById(id);
+        if (cb) {
+            cb.checked = localStorage.getItem(id) === 'true'; 
+            cb.addEventListener('change', function() { localStorage.setItem(this.id, this.checked); });
+        } else {
+            console.warn("Checkbox Variante B non trouvée:", id);
+        }
+      });
+    });
+
+    // ================= VARIANTE SCORES - JavaScript Simple =================
+
+function lancerOptimisationB() {
+  const buttonId = 'btnOptimiserB';
+  const scenarios = [];
+  
+  if (document.getElementById('cbVB_COM')?.checked) scenarios.push('COM');
+  if (document.getElementById('cbVB_TRA')?.checked) scenarios.push('TRA');
+  if (document.getElementById('cbVB_PART')?.checked) scenarios.push('PART');
+  
+  if (scenarios.length === 0) {
+    alert("Sélectionnez au moins un critère.");
+    return;
+  }
+
+  showSpinner(buttonId, 'Traitement...');
+  document.getElementById('loadingIndicatorB').style.display = 'block';
+  document.getElementById('resultBoxB').style.display = 'none';
+
+  google.script.run
+    .withSuccessHandler(function(result) { afficheResultatsB(result, buttonId); }) 
+    .withFailureHandler(function(error) { afficheErreurB(error, buttonId); })   
+    .lancerOptimisationVarianteB_Wrapper(scenarios);
+}
+
+function afficheResultatsB(res, buttonId) {
+  document.getElementById('loadingIndicatorB').style.display = 'none';
+  const box = document.getElementById('resultBoxB');
+  
+  if (res?.success) {
+    showSuccess(buttonId, 'Terminé');
+    box.innerHTML = `<div style="color:green; font-weight:bold;">✅ SUCCÈS</div>
+                     <div>Swaps: ${res.nbSwapsAppliques || 0}</div>
+                     <div>Score: ${res.scoreEquilibre?.toFixed(1) || 'N/A'}/100</div>`;
+  } else {
+    showError(buttonId, 'Échec');
+    box.innerHTML = `<div style="color:red;">❌ ÉCHEC: ${res?.error || 'Erreur'}</div>`;
+  }
+  box.style.display = 'block';
+}
+
+function afficheErreurB(err, buttonId) {
+  document.getElementById('loadingIndicatorB').style.display = 'none';
+  showError(buttonId, 'Erreur');
+  document.getElementById('resultBoxB').innerHTML = `<div style="color:red;">❌ ERREUR: ${err.message || err}</div>`;
+  document.getElementById('resultBoxB').style.display = 'block';
+}
+
+function reinitialiserOptimisationB() {
+  const buttonId = 'btnReinitOptimB';
+  showSpinner(buttonId, 'Réinit...');
+  
+  ['cbVB_COM', 'cbVB_TRA', 'cbVB_PART'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb) {
+      cb.checked = false;
+      localStorage.removeItem(id);
+    }
+  });
+  
+  document.getElementById('resultBoxB').style.display = 'none';
+  showSuccess(buttonId, 'Réinitialisé');
+}
+
+
+    // ================= /LOGIQUE JAVASCRIPT POUR VARIANTE B =================
+    // Fonction pour recharger complètement la liste des onglets
+function rechargerListeOnglets() {
+  const ongletsListe = document.getElementById('onglets-liste');
+  const loadingOnglets = document.getElementById('onglets-loading');
+  
+  if(loadingOnglets) loadingOnglets.style.display = 'flex';
+  ongletsListe.innerHTML = '<p style="text-align: center; color: #666;"><i>Rechargement complet des onglets...</i></p>';
+  
+  const btnAppliquerVisibilite = document.getElementById('btn-appliquer-visibilite');
+  if(btnAppliquerVisibilite) btnAppliquerVisibilite.disabled = true;
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      if (result && result.success) {
+        afficherListeOnglets(result.onglets || []);
+        alert(`Liste des onglets rechargée avec succès.\n${result.total || 0} onglets trouvés au total.`);
+      } else {
+        ongletsListe.innerHTML = '<p style="color: #d93025;">Erreur lors du rechargement des onglets.</p>';
+        alert("Erreur: " + (result ? result.message : "Problème de communication avec le serveur"));
+      }
+    })
+    .withFailureHandler(function(error) {
+      if(loadingOnglets) loadingOnglets.style.display = 'none';
+      ongletsListe.innerHTML = '<p style="color: #d93025;">Erreur technique lors du rechargement.</p>';
+      alert("Erreur technique: " + (error.message || String(error)));
+    })
+    .rechargerOnglets(); // Appel à la nouvelle fonction serveur
+}
+function swapConsoleIDs() {
+    const id1 = document.getElementById("swapId1").value.trim();
+    const id2 = document.getElementById("swapId2").value.trim();
+    if (id1 && id2) {
+      google.script.run.swapManuelDepuisConsole(id1, id2);
+    } else {
+      alert("Veuillez saisir les deux IDs.");
+    }
+  }
+
+  function deplacementConsole() {
+    const id = document.getElementById("deplId").value.trim();
+    const classe = document.getElementById("deplClasse").value.trim();
+    if (id && classe) {
+      google.script.run.deplacementManuelDepuisConsole(id, classe);
+    } else {
+      alert("Veuillez renseigner l'ID et la classe de destination.");
+    }
+  }
+  </script>
+</body>
+</html>
