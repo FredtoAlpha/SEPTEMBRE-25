@@ -658,9 +658,11 @@ function executerPhaseScoresSpecialisee(dataContext, config, scenarios) {
       // Adaptation pour les scénarios spécifiques
       const resultatScores = executerEquilibrageScoresPersonnalise(scenarios, configSpecialisee);
       
-      if (resultatScores && resultatScores.success) {
+      // On ne considère comme un succès que si des opérations ont réellement eu lieu.
+      // Sinon, on veut pouvoir utiliser le fallback.
+      if (resultatScores && resultatScores.success && (resultatScores.totalEchanges || 0) > 0) {
         resultats.success = true;
-        resultats.nbOperations = resultatScores.totalEchanges || 0;
+        resultats.nbOperations = resultatScores.totalEchanges;
         resultats.details = {
           strategieUtilisee: `Spécialisée ${scenarios.join('+')}`,
           scoreInitial: resultatScores.scoreInitial || 0,
