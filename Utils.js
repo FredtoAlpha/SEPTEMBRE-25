@@ -16,23 +16,59 @@ function idx(headerArray, name, def = -1) {
 }
 
 /**
- * logAction — Journalise une action dans l’onglet _REGISTRE
+ * logAction — Journalise une action dans les feuilles prévues (_REGISTRE, _JOURNAL)
  * @param {string} action
  * @maintenance: Utiliser cette fonction partout, supprimer les variantes locales.
  */
 function logAction(action) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(CONFIG.SHEETS.REGISTRE);
-  if (!sheet) {
-    sheet = ss.insertSheet(CONFIG.SHEETS.REGISTRE);
-    sheet.getRange(1, 1, 1, 3)
-      .setValues([['Date', 'Utilisateur', 'Action']])
-      .setFontWeight('bold')
-      .setBackground('#d5dbdb');
+  const now = new Date();
+  const isoTimestamp = now.toISOString();
+
+  let user = '';
+  try { user = Session.getActiveUser().getEmail(); } catch (e) {}
+  if (!user) {
+    try { user = Session.getEffectiveUser().getEmail(); } catch (e) {}
   }
-  const date = new Date();
-  const user = Session.getActiveUser().getEmail();
-  sheet.appendRow([date, user, action]);
+  if (!user) user = 'inconnu';
+
+  const targets = [];
+  const registreName = CONFIG?.SHEETS?.REGISTRE;
+  if (registreName) {
+    targets.push({
+      name: registreName,
+      headers: ['Date', 'Utilisateur', 'Action'],
+      row: [now, user, action]
+    });
+  }
+
+  const journalName = CONFIG?.SHEETS?.JOURNAL;
+  if (journalName && journalName !== registreName) {
+    targets.push({
+      name: journalName,
+      headers: ['TIMESTAMP', 'ACTION', 'UTILISATEUR'],
+      row: [isoTimestamp, action, user]
+    });
+  }
+
+  targets.forEach(({ name, headers, row }) => {
+    let sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+    }
+
+    if (sheet.getLastRow() === 0) {
+      sheet.getRange(1, 1, 1, headers.length)
+        .setValues([headers])
+        .setFontWeight('bold')
+        .setBackground('#d5dbdb');
+      if (sheet.getFrozenRows() < 1) {
+        sheet.setFrozenRows(1);
+      }
+    }
+
+    sheet.appendRow(row);
+  });
 }
 
 /**
@@ -173,22 +209,6 @@ function getFormatColor(valeur, min, max) {
   }
   
   return `rgb(${r}, ${g}, 0)`;
-}
-
-/**
- * Enregistre une action dans le journal
- * @param {string} action - Description de l'action
- */
-function logAction(action) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const journalSheet = ss.getSheetByName(CONFIG.SHEETS.JOURNAL);
-
-  if (journalSheet) {
-    const timestamp = new Date().toISOString();
-    const user = Session.getEffectiveUser().getEmail();
-    const newRow = journalSheet.getLastRow() + 1;
-    journalSheet.getRange(newRow, 1, 1, 3).setValues([[timestamp, action, user]]);
-  }
 }
 
 /**
