@@ -658,11 +658,9 @@ function executerPhaseScoresSpecialisee(dataContext, config, scenarios) {
       // Adaptation pour les scénarios spécifiques
       const resultatScores = executerEquilibrageScoresPersonnalise(scenarios, configSpecialisee);
       
-      // On ne considère comme un succès que si des opérations ont réellement eu lieu.
-      // Sinon, on veut pouvoir utiliser le fallback.
-      if (resultatScores && resultatScores.success && (resultatScores.totalEchanges || 0) > 0) {
+      if (resultatScores && resultatScores.success) {
         resultats.success = true;
-        resultats.nbOperations = resultatScores.totalEchanges;
+        resultats.nbOperations = resultatScores.totalEchanges || 0;
         resultats.details = {
           strategieUtilisee: `Spécialisée ${scenarios.join('+')}`,
           scoreInitial: resultatScores.scoreInitial || 0,
@@ -723,7 +721,7 @@ function simulerEquilibrageScoresBasique(scenarios, config) {
     
     // Pour chaque scénario, effectuer quelques échanges basiques
     scenarios.forEach(scenario => {
-      const colonne = `SCORE_${scenario}`;
+      const colonne = scenario;
       
       // Logique basique : identifier les déséquilibres par score
       Object.entries(dataContext.classesState).forEach(([classe, eleves]) => {
@@ -833,7 +831,7 @@ function calculerScoreFinalVarianteScores(dataContext, config, scenarios) {
  */
 function calculerScoreEquilibrageScenario(dataContext, scenario) {
   try {
-    const colonne = `SCORE_${scenario}`;
+    const colonne = scenario;
     let scoreTotal = 0;
     let nbClasses = 0;
     
