@@ -721,7 +721,7 @@ function simulerEquilibrageScoresBasique(scenarios, config) {
     
     // Pour chaque scénario, effectuer quelques échanges basiques
     scenarios.forEach(scenario => {
-      const colonne = scenario;
+      const colonne = `SCORE_${scenario}`;
       
       // Logique basique : identifier les déséquilibres par score
       Object.entries(dataContext.classesState).forEach(([classe, eleves]) => {
@@ -831,7 +831,7 @@ function calculerScoreFinalVarianteScores(dataContext, config, scenarios) {
  */
 function calculerScoreEquilibrageScenario(dataContext, scenario) {
   try {
-    const colonne = scenario;
+    const colonne = `SCORE_${scenario}`;
     let scoreTotal = 0;
     let nbClasses = 0;
     
