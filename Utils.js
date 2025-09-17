@@ -15,6 +15,25 @@ function idx(headerArray, name, def = -1) {
   return i >= 0 ? i + 1 : def;
 }
 
+/**
+ * logAction — Journalise une action dans l’onglet _REGISTRE
+ * @param {string} action
+ * @maintenance: Utiliser cette fonction partout, supprimer les variantes locales.
+ */
+function logAction(action) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CONFIG.SHEETS.REGISTRE);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.SHEETS.REGISTRE);
+    sheet.getRange(1, 1, 1, 3)
+      .setValues([['Date', 'Utilisateur', 'Action']])
+      .setFontWeight('bold')
+      .setBackground('#d5dbdb');
+  }
+  const date = new Date();
+  const user = Session.getActiveUser().getEmail();
+  sheet.appendRow([date, user, action]);
+}
 
 /**
  * validationRuleDEF — Crée une règle de validation DEF standardisée
@@ -157,30 +176,18 @@ function getFormatColor(valeur, min, max) {
 }
 
 /**
- * Enregistre une action dans le journal (`_JOURNAL`).
- * Crée la feuille si elle n'existe pas.
- * @param {string} action - Description de l'action à journaliser.
+ * Enregistre une action dans le journal
+ * @param {string} action - Description de l'action
  */
 function logAction(action) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheetName = CONFIG.SHEETS.JOURNAL;
-    let sheet = ss.getSheetByName(sheetName);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const journalSheet = ss.getSheetByName(CONFIG.SHEETS.JOURNAL);
 
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetName);
-      sheet.getRange(1, 1, 1, 3)
-        .setValues([['Timestamp', 'Action', 'Utilisateur']])
-        .setFontWeight('bold')
-        .setBackground('#e0e0e0');
-    }
-
+  if (journalSheet) {
     const timestamp = new Date().toISOString();
     const user = Session.getEffectiveUser().getEmail();
-    sheet.appendRow([timestamp, action, user]);
-
-  } catch (e) {
-    Logger.log(`Erreur dans logAction: ${e.message}`);
+    const newRow = journalSheet.getLastRow() + 1;
+    journalSheet.getRange(newRow, 1, 1, 3).setValues([[timestamp, action, user]]);
   }
 }
 
@@ -224,6 +231,7 @@ function corrigerNotationScientifique() {
   for (const sheet of allSheets) {
     // Traitement spécifique de l'onglet _STRUCTURE
     if (sheet.getName() === CONFIG.SHEETS.STRUCTURE) {
+      if (sheet.getLastRow() <= 1) continue; // Sécurité: ne rien faire si la feuille n'a que l'en-tête ou est vide
       const dataRange = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1); // Colonne B (Nom)
       const values = dataRange.getValues();
       const formattedValues = [];
