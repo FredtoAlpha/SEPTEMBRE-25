@@ -18,6 +18,398 @@
 
 'use strict';
 
+const NirvanaEngine = (function (global) {
+  const noop = () => {};
+  const defaultLogger = (global.Logger && {
+    log: (...args) => global.Logger.log(...args),
+    warn: (...args) => (global.Logger.warn ? global.Logger.warn(...args) : noop()),
+    error: (...args) => (global.Logger.error ? global.Logger.error(...args) : global.Logger.log(...args))
+  }) || global.console || { log: noop, warn: noop, error: noop };
+
+  function toMs(instant) {
+    if (instant instanceof Date) {
+      const ms = instant.getTime();
+      return Number.isFinite(ms) ? ms : Date.now();
+    }
+    if (typeof instant === 'number') {
+      return Number.isFinite(instant) ? instant : Date.now();
+    }
+    if (typeof instant === 'string') {
+      const parsed = Date.parse(instant);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    const num = Number(instant);
+    return Number.isFinite(num) ? num : Date.now();
+  }
+
+  function toDate(instant) {
+    const ms = toMs(instant);
+    return new Date(ms);
+  }
+
+  function toCount(value) {
+    if (Array.isArray(value)) return value.length;
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.max(0, Math.trunc(num)) : 0;
+  }
+
+  function toNonNegativeNumber(value) {
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.max(0, num) : 0;
+  }
+
+  function ensureFunction(fn, name) {
+    if (typeof fn !== 'function') {
+      throw new Error(`${name} doit être une fonction valide pour NirvanaEngine`);
+    }
+  }
+
+  function createDomain({ logger = defaultLogger } = {}) {
+    function runCombined({
+      config,
+      dataContext,
+      runV2Phase,
+      runParityPhase,
+      computeState,
+      now = () => new Date(),
+      startedAt,
+      hooks = {}
+    } = {}) {
+      if (!config) {
+        throw new Error('Configuration Nirvana manquante');
+      }
+      if (!dataContext || typeof dataContext !== 'object') {
+        throw new Error('Contexte de données Nirvana invalide');
+      }
+      if (!dataContext.classesState) {
+        throw new Error('Le contexte Nirvana doit contenir classesState');
+      }
+
+      ensureFunction(runV2Phase, 'runV2Phase');
+      ensureFunction(runParityPhase, 'runParityPhase');
+
+      const startInstant = startedAt !== undefined ? startedAt : now();
+      const startMs = toMs(startInstant);
+
+      if (hooks && typeof hooks.beforePhase1 === 'function') {
+        hooks.beforePhase1();
+      }
+
+      const phase1 = runV2Phase(dataContext, config) || {};
+
+      if (hooks && typeof hooks.beforePhase2 === 'function') {
+        hooks.beforePhase2(phase1);
+      }
+
+      const phase2 = runParityPhase(dataContext, config) || {};
+
+      const endInstant = now();
+      const endMs = toMs(endInstant);
+      const durationMs = Math.max(0, endMs - startMs);
+
+      let finalState = null;
+      if (typeof computeState === 'function') {
+        try {
+          finalState = computeState(dataContext, config) || null;
+        } catch (err) {
+          logger && logger.warn && logger.warn('NirvanaEngine: échec du calcul de l\'état final', err);
+        }
+      } else {
+        logger && logger.warn && logger.warn('NirvanaEngine: computeState absent, score final indisponible');
+      }
+
+      const swapsV2 = toCount(phase1.swapsV2);
+      const cyclesGeneraux = toNonNegativeNumber(phase1.cyclesGeneraux);
+      const cyclesParite = toNonNegativeNumber(phase1.cyclesParite);
+      const operationsParity = toNonNegativeNumber(
+        phase2.nbApplied !== undefined ? phase2.nbApplied : phase2.operationsParity
+      );
+
+      const scoreFinal =
+        finalState && Number.isFinite(finalState.scoreGlobal) ? finalState.scoreGlobal : null;
+
+      const summary = {
+        success: true,
+        swapsV2,
+        cyclesGeneraux,
+        cyclesParite,
+        operationsParity,
+        tempsMs: durationMs,
+        scoreFinal,
+        phase1,
+        phase2,
+        finalState,
+        startedAt: toDate(startMs),
+        endedAt: toDate(endMs)
+      };
+
+      summary.totalOperations = swapsV2 + operationsParity;
+
+      return summary;
+    }
+
+    function formatSuccess(summary) {
+      if (!summary || summary.success === false) return '';
+
+      const swaps = summary.swapsV2 || 0;
+      const cyclesGeneraux = summary.cyclesGeneraux || 0;
+      const cyclesParite = summary.cyclesParite || 0;
+      const operationsParity = summary.operationsParity || 0;
+      const duration = Number.isFinite(summary.tempsMs)
+        ? (summary.tempsMs / 1000).toFixed(1)
+        : '0.0';
+      const score =
+        Number.isFinite(summary.scoreFinal) && summary.scoreFinal !== null
+          ? summary.scoreFinal.toFixed(2)
+          : 'N/A';
+
+      return (
+        `✅ COMBINAISON NIRVANA OPTIMALE RÉUSSIE !\n\n` +
+        `📊 RÉSULTATS PHASE 1 (Nirvana V2):\n` +
+        `   • Swaps principaux: ${swaps}\n` +
+        `   • Cycles généraux: ${cyclesGeneraux}\n` +
+        `   • Cycles parité: ${cyclesParite}\n\n` +
+        `🎯 RÉSULTATS PHASE 2 (Nirvana Parity):\n` +
+        `   • Corrections parité: ${operationsParity}\n\n` +
+        `📈 PERFORMANCE:\n` +
+        `   • Score final: ${score}/100\n` +
+        `   • Durée totale: ${duration} secondes\n\n` +
+        `🔍 Consultez les logs pour le détail complet.`
+      );
+    }
+
+    function formatToast(summary) {
+      if (!summary || summary.success === false) return 'Combinaison interrompue.';
+      const total = Number.isFinite(summary.totalOperations)
+        ? summary.totalOperations
+        : (summary.swapsV2 || 0) + (summary.operationsParity || 0);
+      return `Combinaison réussie ! ${total} opérations appliquées.`;
+    }
+
+    return {
+      runCombined,
+      formatSuccess,
+      formatToast
+    };
+  }
+
+  function createService({
+    domain = createDomain(),
+    getConfig = global.getConfig,
+    prepareData = global.V2_Ameliore_PreparerDonnees,
+    runV2Phase = global.combinaisonNirvanaOptimale,
+    runParityPhase = global.correctionPariteFinale,
+    computeState = global.V2_Ameliore_CalculerEtatGlobal,
+    spreadsheetApp = global.SpreadsheetApp,
+    lockService = global.LockService,
+    logger = defaultLogger,
+    now = () => new Date()
+  } = {}) {
+    function getActiveSpreadsheet() {
+      if (!spreadsheetApp || typeof spreadsheetApp.getActiveSpreadsheet !== 'function') {
+        return null;
+      }
+      try {
+        return spreadsheetApp.getActiveSpreadsheet();
+      } catch (err) {
+        logger && logger.warn && logger.warn('NirvanaEngine: impossible de récupérer le classeur actif', err);
+        return null;
+      }
+    }
+
+    function acquireLock(timeoutMs) {
+      if (!lockService || typeof lockService.getScriptLock !== 'function') {
+        return null;
+      }
+      try {
+        const lock = lockService.getScriptLock();
+        if (lock && typeof lock.tryLock === 'function' && lock.tryLock(timeoutMs)) {
+          return lock;
+        }
+        return { failed: true, lock };
+      } catch (err) {
+        logger && logger.warn && logger.warn('NirvanaEngine: échec lors de la tentative de verrouillage', err);
+        return { failed: true };
+      }
+    }
+
+    function releaseLock(lock) {
+      if (lock && typeof lock.releaseLock === 'function') {
+        try {
+          lock.releaseLock();
+        } catch (err) {
+          logger && logger.warn && logger.warn('NirvanaEngine: échec lors de la libération du verrou', err);
+        }
+      }
+    }
+
+    function withUi(spreadsheet, callback) {
+      if (!spreadsheet || typeof spreadsheet.getUi !== 'function') {
+        return;
+      }
+      try {
+        const ui = spreadsheet.getUi();
+        callback(ui);
+      } catch (err) {
+        logger && logger.warn && logger.warn('NirvanaEngine: UI inaccessible', err);
+      }
+    }
+
+    function toast(spreadsheet, message, title, seconds) {
+      if (!spreadsheet || typeof spreadsheet.toast !== 'function') {
+        return;
+      }
+      try {
+        spreadsheet.toast(message, title, seconds);
+      } catch (err) {
+        logger && logger.warn && logger.warn('NirvanaEngine: toast impossible', err);
+      }
+    }
+
+    function runCombination(criteresUI) {
+      const startInstant = typeof now === 'function' ? now() : new Date();
+      const startMs = toMs(startInstant);
+      const startDate = toDate(startMs);
+
+      logger && logger.log && logger.log(`\n##########################################################`);
+      logger && logger.log && logger.log(
+        ` LANCEMENT COMBINAISON NIRVANA OPTIMALE - ${startDate.toLocaleString('fr-FR')}`
+      );
+      logger && logger.log && logger.log(` Objectif: Équilibrage global + Parité parfaite`);
+      logger && logger.log && logger.log(` Stratégie: Nirvana V2 + Nirvana Parity`);
+      logger && logger.log && logger.log(`##########################################################`);
+
+      const spreadsheet = getActiveSpreadsheet();
+      let lock = null;
+
+      try {
+        const lockResult = acquireLock(60000);
+        if (lockResult && lockResult.failed) {
+          logger && logger.log && logger.log('Combinaison: Verrouillage impossible.');
+          withUi(spreadsheet, ui => {
+            const button = ui.ButtonSet ? ui.ButtonSet.OK : undefined;
+            ui.alert('Optimisation en cours', 'Un autre processus est déjà actif.', button);
+          });
+          return { success: false, errorCode: 'LOCKED' };
+        }
+
+        lock = lockResult && !lockResult.failed ? lockResult : null;
+
+        toast(spreadsheet, 'Combinaison Nirvana Optimale: Démarrage...', 'Statut', 10);
+
+        const config = typeof getConfig === 'function' ? getConfig(criteresUI) : null;
+        const dataContext = typeof prepareData === 'function' ? prepareData(config, criteresUI) : null;
+
+        const hooks = {
+          beforePhase1: () => {
+            logger && logger.log && logger.log('\n' + '='.repeat(60));
+            logger && logger.log && logger.log('PHASE 1: ÉQUILIBRAGE GLOBAL NIRVANA V2');
+            logger && logger.log && logger.log('='.repeat(60));
+            toast(spreadsheet, 'Phase 1: Équilibrage global...', 'Statut', 5);
+          },
+          beforePhase2: () => {
+            logger && logger.log && logger.log('\n' + '='.repeat(60));
+            logger && logger.log && logger.log('PHASE 2: CORRECTION PARITÉ FINALE NIRVANA PARITY');
+            logger && logger.log && logger.log('='.repeat(60));
+            toast(spreadsheet, 'Phase 2: Correction parité...', 'Statut', 5);
+          }
+        };
+
+        const summary = domain.runCombined({
+          config,
+          dataContext,
+          runV2Phase,
+          runParityPhase,
+          computeState,
+          now,
+          startedAt: startInstant,
+          hooks
+        });
+
+        const message = domain.formatSuccess(summary);
+
+        withUi(spreadsheet, ui => {
+          const button = ui.ButtonSet ? ui.ButtonSet.OK : undefined;
+          ui.alert('Combinaison Nirvana Optimale Terminée', message, button);
+        });
+
+        toast(spreadsheet, domain.formatToast(summary), 'Succès', 10);
+
+        logger && logger.log && logger.log('=== FIN COMBINAISON NIRVANA OPTIMALE ===');
+        logger && logger.log && logger.log(
+          `Bilan final: ${summary.swapsV2} swaps V2 + ${summary.operationsParity} corrections parité`
+        );
+        const scoreLog =
+          Number.isFinite(summary.scoreFinal) && summary.scoreFinal !== null
+            ? `${summary.scoreFinal.toFixed(2)}/100`
+            : 'N/A';
+        logger && logger.log && logger.log(`Score final: ${scoreLog}`);
+        logger && logger.log && logger.log(
+          `Durée totale: ${((summary.tempsMs || 0) / 1000).toFixed(1)} secondes`
+        );
+
+        return summary;
+      } catch (err) {
+        logger && logger.error && logger.error(
+          `❌ ERREUR FATALE dans lancerCombinaisonNirvanaOptimale: ${err.message}`
+        );
+        toast(spreadsheet, 'Erreur Combinaison Nirvana!', 'Statut', 5);
+        withUi(spreadsheet, ui => {
+          const button = ui.ButtonSet ? ui.ButtonSet.OK : undefined;
+          ui.alert('Erreur Critique', `Erreur: ${err.message}`, button);
+        });
+        return { success: false, error: err.message };
+      } finally {
+        releaseLock(lock);
+        const endMs = toMs(typeof now === 'function' ? now() : new Date());
+        const durationSec = Math.max(0, endMs - startMs) / 1000;
+        logger && logger.log && logger.log(`FIN ORCHESTRATEUR | Durée: ${durationSec.toFixed(1)}s`);
+      }
+    }
+
+    return {
+      runCombination
+    };
+  }
+
+  const api = {
+    createDomain,
+    createService
+  };
+
+  global.NirvanaEngine = api;
+  return api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+const __nirvanaEngineLogger =
+  (typeof Logger !== 'undefined' && Logger) ||
+  (typeof console !== 'undefined' ? console : { log: () => {}, warn: () => {}, error: () => {} });
+const __nirvanaEngineDomain = NirvanaEngine.createDomain({ logger: __nirvanaEngineLogger });
+const __nirvanaEngineService = NirvanaEngine.createService({
+  domain: __nirvanaEngineDomain,
+  getConfig: typeof getConfig === 'function' ? (...args) => getConfig(...args) : () => null,
+  prepareData:
+    typeof V2_Ameliore_PreparerDonnees === 'function'
+      ? (config, criteres) => V2_Ameliore_PreparerDonnees(config, criteres)
+      : () => null,
+  runV2Phase:
+    typeof combinaisonNirvanaOptimale === 'function'
+      ? (dataContext, config) => combinaisonNirvanaOptimale(dataContext, config)
+      : () => ({}),
+  runParityPhase:
+    typeof correctionPariteFinale === 'function'
+      ? (dataContext, config) => correctionPariteFinale(dataContext, config)
+      : () => ({ nbApplied: 0 }),
+  computeState:
+    typeof V2_Ameliore_CalculerEtatGlobal === 'function'
+      ? (dataContext, config) => V2_Ameliore_CalculerEtatGlobal(dataContext, config)
+      : null,
+  spreadsheetApp: typeof SpreadsheetApp !== 'undefined' ? SpreadsheetApp : null,
+  lockService: typeof LockService !== 'undefined' ? LockService : null,
+  logger: __nirvanaEngineLogger,
+  now: () => new Date()
+});
+
 // ==================================================================
 // SECTION 1: ORCHESTRATEUR PRINCIPAL
 // ==================================================================
@@ -26,100 +418,7 @@
  * Point d'entrée UI pour la combinaison optimale
  */
 function lancerCombinaisonNirvanaOptimale(criteresUI) {
-  const ui = SpreadsheetApp.getUi();
-  const heureDebut = new Date();
-  let lock = null;
-
-  try {
-    Logger.log(`\n##########################################################`);
-    Logger.log(` LANCEMENT COMBINAISON NIRVANA OPTIMALE - ${heureDebut.toLocaleString('fr-FR')}`);
-    Logger.log(` Objectif: Équilibrage global + Parité parfaite`);
-    Logger.log(` Stratégie: Nirvana V2 + Nirvana Parity`);
-    Logger.log(`##########################################################`);
-
-    lock = LockService.getScriptLock();
-    if (!lock.tryLock(60000)) { // 60 secondes pour la combinaison
-      Logger.log("Combinaison: Verrouillage impossible.");
-      ui.alert("Optimisation en cours", "Un autre processus est déjà actif.", ui.ButtonSet.OK);
-      return { success: false, errorCode: "LOCKED" };
-    }
-
-    SpreadsheetApp.getActiveSpreadsheet().toast("Combinaison Nirvana Optimale: Démarrage...", "Statut", 10);
-
-    // Préparation des données
-    const config = getConfig();
-    const dataContext = V2_Ameliore_PreparerDonnees(config);
-    
-    if (!dataContext || !dataContext.classesState) {
-      throw new Error("Impossible de préparer les données pour la combinaison");
-    }
-
-    // PHASE 1 : Équilibrage global Nirvana V2
-    Logger.log("\n" + "=".repeat(60));
-    Logger.log("PHASE 1: ÉQUILIBRAGE GLOBAL NIRVANA V2");
-    Logger.log("=".repeat(60));
-    
-    SpreadsheetApp.getActiveSpreadsheet().toast("Phase 1: Équilibrage global...", "Statut", 5);
-    const resultatV2 = combinaisonNirvanaOptimale(dataContext, config);
-    
-    // PHASE 2 : Correction parité finale Nirvana Parity
-    Logger.log("\n" + "=".repeat(60));
-    Logger.log("PHASE 2: CORRECTION PARITÉ FINALE NIRVANA PARITY");
-    Logger.log("=".repeat(60));
-    
-    SpreadsheetApp.getActiveSpreadsheet().toast("Phase 2: Correction parité...", "Statut", 5);
-    const resultatParity = correctionPariteFinale(dataContext, config);
-    
-    // Bilan final
-    const tempsTotal = new Date() - heureDebut;
-    const bilan = {
-      success: true,
-      swapsV2: resultatV2.swapsV2.length,
-      cyclesGeneraux: resultatV2.cyclesGeneraux,
-      cyclesParite: resultatV2.cyclesParite,
-      operationsParity: resultatParity.nbApplied,
-      tempsMs: tempsTotal,
-      scoreFinal: V2_Ameliore_CalculerEtatGlobal(dataContext, config).scoreGlobal
-    };
-    
-    // Message de succès détaillé
-    const message = `✅ COMBINAISON NIRVANA OPTIMALE RÉUSSIE !\n\n` +
-                   `📊 RÉSULTATS PHASE 1 (Nirvana V2):\n` +
-                   `   • Swaps principaux: ${bilan.swapsV2}\n` +
-                   `   • Cycles généraux: ${bilan.cyclesGeneraux}\n` +
-                   `   • Cycles parité: ${bilan.cyclesParite}\n\n` +
-                   `🎯 RÉSULTATS PHASE 2 (Nirvana Parity):\n` +
-                   `   • Corrections parité: ${bilan.operationsParity}\n\n` +
-                   `📈 PERFORMANCE:\n` +
-                   `   • Score final: ${bilan.scoreFinal?.toFixed(2) || 'N/A'}/100\n` +
-                   `   • Durée totale: ${(bilan.tempsMs / 1000).toFixed(1)} secondes\n\n` +
-                   `🔍 Consultez les logs pour le détail complet.`;
-    
-    ui.alert('Combinaison Nirvana Optimale Terminée', message, ui.ButtonSet.OK);
-    
-    // Toast de confirmation
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      `Combinaison réussie ! ${bilan.swapsV2 + bilan.operationsParity} opérations appliquées.`, 
-      "Succès", 
-      10
-    );
-    
-    Logger.log(`=== FIN COMBINAISON NIRVANA OPTIMALE ===`);
-    Logger.log(`Bilan final: ${bilan.swapsV2} swaps V2 + ${bilan.operationsParity} corrections parité`);
-    Logger.log(`Score final: ${bilan.scoreFinal?.toFixed(2) || 'N/A'}/100`);
-    Logger.log(`Durée totale: ${(bilan.tempsMs / 1000).toFixed(1)} secondes`);
-
-    return bilan;
-
-  } catch (e) {
-    Logger.log(`❌ ERREUR FATALE dans lancerCombinaisonNirvanaOptimale: ${e.message}\n${e.stack}`);
-    SpreadsheetApp.getActiveSpreadsheet().toast("Erreur Combinaison Nirvana!", "Statut", 5);
-    ui.alert("Erreur Critique", `Erreur: ${e.message}`, ui.ButtonSet.OK);
-    return { success: false, error: e.message };
-  } finally {
-    if (lock) lock.releaseLock();
-    Logger.log(`FIN ORCHESTRATEUR | Durée: ${(new Date() - heureDebut) / 1000}s`);
-  }
+  return __nirvanaEngineService.runCombination(criteresUI);
 }
 
 // ==================================================================
