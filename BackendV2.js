@@ -558,33 +558,55 @@ function getEleveById_(id) {
     if (data.length === 0) continue;
 
     const header = data[0].map(h => String(h).trim().toUpperCase());
-    const colId  = header.indexOf('ID');              // nom exact de la colonne ID
+
+    const colCache = new Map();
+    const col = (field) => {
+      const key = String(field || '').toLowerCase();
+      if (colCache.has(key)) return colCache.get(key);
+
+      const aliases = ELEVES_ALIAS[key];
+      if (!aliases) {
+        colCache.set(key, -1);
+        return -1;
+      }
+
+      const idx = _eleves_idx(header, aliases.map(_eleves_up));
+      colCache.set(key, idx);
+      return idx;
+    };
+
+    const colId = col('id');
     if (colId === -1) continue;                       // pas de colonne ID → on passe
 
     // Recherche de l'ID dans cette feuille
     for (let r = 1; r < data.length; r++) {
       if (String(data[r][colId]).trim() === idStr) {
 
-        // helper pour retrouver l'indice d'un champ
-        const col = (field) => header.indexOf(field);
+        const valueAt = (field) => {
+          const idx = col(field);
+          return idx !== -1 ? data[r][idx] : undefined;
+        };
 
         return {
           id       : idStr,
-          nom      : data[r][col('NOM')],
-          prenom   : data[r][col('PRENOM')],
-          sexe     : data[r][col('SEXE')],
-          lv2      : data[r][col('LV2')],
-          opt      : data[r][col('OPT')],
+          nom      : valueAt('nom'),
+          prenom   : valueAt('prenom'),
+          sexe     : valueAt('sexe'),
+          lv2      : valueAt('lv2'),
+          opt      : valueAt('opt'),
           scores   : {
-            C : data[r][col('COM')],
-            T : data[r][col('TRA')],
-            P : data[r][col('PART')],
-            A : data[r][col('ABS')]
+            C : valueAt('com'),
+            T : valueAt('tra'),
+            P : valueAt('part'),
+            A : valueAt('abs')
           },
-          mobilite : data[r][col('DISPO')],
-          asso     : data[r][col('ASSO')],
-          disso    : data[r][col('DISSO')],
-          source   : data[r][col('SOURCE')]
+          mobilite : (() => {
+            const direct = valueAt('mobilite');
+            return direct !== undefined ? direct : valueAt('dispo');
+          })(),
+          asso     : valueAt('asso'),
+          disso    : valueAt('disso'),
+          source   : valueAt('source')
         };
       }
     }
