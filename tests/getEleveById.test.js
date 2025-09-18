@@ -1,29 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-
-function loadBackendSandbox(overrides = {}) {
-  const sandbox = {
-    console: { log: () => {}, warn: () => {}, error: () => {} },
-    Logger: { log: () => {} },
-    SpreadsheetApp: {
-      getActiveSpreadsheet: () => ({ getSheets: () => [] })
-    },
-  };
-
-  sandbox.global = sandbox;
-  sandbox.globalThis = sandbox;
-  sandbox.self = sandbox;
-
-  const filePath = path.join(__dirname, '..', 'BackendV2.js');
-  const code = fs.readFileSync(filePath, 'utf8');
-  vm.runInNewContext(code, sandbox, { filename: 'BackendV2.js' });
-
-  Object.assign(sandbox, overrides);
-  return sandbox;
-}
+const { loadBackendSandbox } = require('./helpers/loadBackendSandbox');
 
 test('getEleveById_ accepte les alias ID_ELEVE pour la colonne identifiant', () => {
   const data = [
@@ -54,7 +31,7 @@ test('getEleveById_ accepte les alias ID_ELEVE pour la colonne identifiant', () 
   assert.strictEqual(eleve.prenom, 'Alice');
   assert.strictEqual(eleve.mobilite, 'LIBRE');
   assert.strictEqual(eleve.scores.C, 42);
-  assert.strictEqual(eleve.scores.T, undefined);
-  assert.strictEqual(eleve.scores.P, undefined);
-  assert.strictEqual(eleve.scores.A, undefined);
+  assert.strictEqual(eleve.scores.T, 0);
+  assert.strictEqual(eleve.scores.P, 0);
+  assert.strictEqual(eleve.scores.A, 0);
 });

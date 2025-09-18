@@ -6,8 +6,12 @@
 /**************************** CONFIGURATION LOCALE *********************************/
 const ELEVES_MODULE_CONFIG = {
   TEST_SUFFIX: 'TEST',
+  CACHE_SUFFIX: 'CACHE',
   SNAPSHOT_SUFFIX: 'INT',
-  STRUCTURE_SHEET: '_STRUCTURE'
+  STRUCTURE_SHEET: '_STRUCTURE',
+  DEFAULT_CAPACITY: 28,
+  DEFAULT_MOBILITY: 'LIBRE',
+  SHEET_EXCLUSION_PATTERN: /^(?:level|grp|groupe|group|niv(?:eau)?)\b/i
 };
 
 /**************************** ALIAS DES COLONNES *********************************/
@@ -44,192 +48,393 @@ function _eleves_idx(head, aliases){
 }
 
 function _eleves_sanitizeForSerialization(obj) {
+  if (obj === undefined) return undefined;
   return JSON.parse(JSON.stringify(obj));
 }
 
+const ElevesBackend = (function(global) {
+  const baseLogger = global.console || { log: () => {}, warn: () => {}, error: () => {} };
+
+  function escapeRegExp(str) {
+    return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function toStringValue(value) {
+    return _eleves_s(value);
+  }
+
+  function toUpperValue(value) {
+    return _eleves_up(value);
+  }
+
+  function toNumberValue(value) {
+    return _eleves_num(value);
+  }
+
+  function sanitize(data) {
+    return _eleves_sanitizeForSerialization(data);
+  }
+
+  function stripSuffix(name, suffix) {
+    if (!suffix) return toStringValue(name);
+    const regex = new RegExp(`${escapeRegExp(suffix)}$`, 'i');
+    return toStringValue(name).replace(regex, '').trim();
+  }
+
+  const baseConfig = {
+    sheetSuffixes: {
+      test: ELEVES_MODULE_CONFIG.TEST_SUFFIX,
+      cache: ELEVES_MODULE_CONFIG.CACHE_SUFFIX || 'CACHE',
+      snapshot: ELEVES_MODULE_CONFIG.SNAPSHOT_SUFFIX
+    },
+    structureSheet: ELEVES_MODULE_CONFIG.STRUCTURE_SHEET,
+    defaultCapacity: ELEVES_MODULE_CONFIG.DEFAULT_CAPACITY || 28,
+    defaultMobility: ELEVES_MODULE_CONFIG.DEFAULT_MOBILITY || 'LIBRE',
+    columnAliases: ELEVES_ALIAS,
+    sheetExclusionPattern: ELEVES_MODULE_CONFIG.SHEET_EXCLUSION_PATTERN || null
+  };
+
+  function createDomain({ config = baseConfig, logger = baseLogger } = {}) {
+    const aliasMap = config.columnAliases;
+    const defaultMobility = config.defaultMobility;
+
+    function buildColumnIndex(headerRow) {
+      const normalizedHead = Array.isArray(headerRow)
+        ? headerRow.map(toUpperValue)
+        : [];
+
+      const indexes = {};
+      Object.keys(aliasMap).forEach(key => {
+        const aliases = (aliasMap[key] || []).map(toUpperValue);
+        indexes[key] = _eleves_idx(normalizedHead, aliases);
+      });
+      return indexes;
+    }
+
+    function createStudent(row, columns) {
+      const idIndex = columns.id;
+      if (idIndex === undefined || idIndex === -1) {
+        return null;
+      }
+
+      const id = toStringValue(row[idIndex]);
+      if (!id) {
+        return null;
+      }
+
+      const valueAt = (field, formatter = toStringValue) => {
+        const idx = columns[field];
+        if (idx === undefined || idx === -1) return formatter === toNumberValue ? 0 : '';
+        return formatter(row[idx]);
+      };
+
+      const directMobilite = columns.mobilite !== -1 && columns.mobilite !== undefined
+        ? toUpperValue(row[columns.mobilite])
+        : '';
+      const fallbackMobilite = columns.dispo !== -1 && columns.dispo !== undefined
+        ? toUpperValue(row[columns.dispo])
+        : '';
+
+      return {
+        id,
+        nom: valueAt('nom'),
+        prenom: valueAt('prenom'),
+        sexe: valueAt('sexe', toUpperValue),
+        lv2: valueAt('lv2', toUpperValue),
+        opt: valueAt('opt', toUpperValue),
+        disso: valueAt('disso', toUpperValue),
+        asso: valueAt('asso', toUpperValue),
+        scores: {
+          C: valueAt('com', toNumberValue),
+          T: valueAt('tra', toNumberValue),
+          P: valueAt('part', toNumberValue),
+          A: valueAt('abs', toNumberValue)
+        },
+        source: valueAt('source'),
+        dispo: valueAt('dispo', toUpperValue),
+        mobilite: directMobilite || fallbackMobilite || defaultMobility
+      };
+    }
+
+    function createClassFromSheet(sheet, { suffix, logger: localLogger = logger } = {}) {
+      if (!sheet || !Array.isArray(sheet.values) || sheet.values.length < 2) {
+        return null;
+      }
+
+      const header = sheet.values[0];
+      const columns = buildColumnIndex(header);
+      if (columns.id === -1) {
+        localLogger && localLogger.warn && localLogger.warn(`Feuille ${sheet.name} ignorée: aucune colonne ID reconnue.`);
+        return null;
+      }
+
+      const students = [];
+      for (let r = 1; r < sheet.values.length; r++) {
+        const student = createStudent(sheet.values[r], columns);
+        if (student) students.push(student);
+      }
+
+      if (!students.length) {
+        return null;
+      }
+
+      return {
+        classe: stripSuffix(sheet.name, suffix),
+        eleves: students
+      };
+    }
+
+    function buildClassesData(sheets, { suffix, logger: localLogger = logger } = {}) {
+      const classes = [];
+      (sheets || []).forEach(sheet => {
+        const classe = createClassFromSheet(sheet, { suffix, logger: localLogger });
+        if (classe) classes.push(classe);
+      });
+      return classes;
+    }
+
+    function parseStructureRules(values) {
+      if (!Array.isArray(values) || values.length < 2) {
+        return {};
+      }
+
+      const head = values[0].map(toUpperValue);
+      const colDest = head.findIndex(h => h.includes('DEST'));
+      if (colDest === -1) {
+        logger && logger.warn && logger.warn('❌ Pas de colonne CLASSE_DEST dans _STRUCTURE');
+        return {};
+      }
+
+      const colEff = head.findIndex(h => h.includes('EFFECTIF'));
+      const colOptions = head.findIndex(h => h.includes('OPTION'));
+
+      const rules = {};
+      for (let r = 1; r < values.length; r++) {
+        const dest = toStringValue(values[r][colDest]);
+        if (!dest) continue;
+
+        let capacity = config.defaultCapacity;
+        if (colEff !== -1 && values[r][colEff] !== '' && values[r][colEff] != null) {
+          const parsed = parseInt(values[r][colEff], 10);
+          if (!Number.isNaN(parsed)) capacity = parsed;
+        }
+
+        const quotas = {};
+        if (colOptions !== -1 && values[r][colOptions] !== '' && values[r][colOptions] != null) {
+          String(values[r][colOptions])
+            .replace(/^'/, '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+            .forEach(pair => {
+              const [opt, val = '0'] = pair.split('=').map(x => toUpperValue(x));
+              if (opt) {
+                const parsed = parseInt(val, 10);
+                quotas[opt] = Number.isNaN(parsed) ? 0 : parsed;
+              }
+            });
+        }
+
+        rules[dest] = { capacity, quotas };
+      }
+
+      return rules;
+    }
+
+    return {
+      buildColumnIndex,
+      createStudent,
+      createClassFromSheet,
+      buildClassesData,
+      parseStructureRules,
+      sanitize,
+      stripSuffix
+    };
+  }
+
+  function createDataAccess({ SpreadsheetApp, logger = baseLogger, config = baseConfig } = {}) {
+    const hasSpreadsheet = SpreadsheetApp && typeof SpreadsheetApp.getActiveSpreadsheet === 'function';
+
+    function getSpreadsheet() {
+      if (!hasSpreadsheet) return null;
+      try {
+        return SpreadsheetApp.getActiveSpreadsheet();
+      } catch (err) {
+        logger && logger.error && logger.error('Erreur lors de la récupération du classeur actif', err);
+        return null;
+      }
+    }
+
+    function getClassSheetsForSuffix(suffix, { includeValues = true } = {}) {
+      const spreadsheet = getSpreadsheet();
+      if (!spreadsheet || typeof spreadsheet.getSheets !== 'function') {
+        return [];
+      }
+
+      const suffixUpper = toUpperValue(suffix);
+      const exclusionPattern = config.sheetExclusionPattern;
+
+      return spreadsheet.getSheets().reduce((acc, sh) => {
+        const name = sh && typeof sh.getName === 'function' ? sh.getName() : '';
+        if (!toUpperValue(name).endsWith(suffixUpper)) return acc;
+        if (exclusionPattern && exclusionPattern.test(name)) return acc;
+
+        const entry = { name };
+        if (includeValues) {
+          try {
+            const dataRange = sh.getDataRange && sh.getDataRange();
+            entry.values = dataRange && typeof dataRange.getValues === 'function'
+              ? dataRange.getValues()
+              : [];
+          } catch (err) {
+            logger && logger.error && logger.error(`Erreur lors de la lecture de la feuille ${name}`, err);
+            entry.values = [];
+          }
+        }
+        acc.push(entry);
+        return acc;
+      }, []);
+    }
+
+    function getStructureSheetValues() {
+      const spreadsheet = getSpreadsheet();
+      if (!spreadsheet || typeof spreadsheet.getSheetByName !== 'function') {
+        return null;
+      }
+
+      try {
+        const sheet = spreadsheet.getSheetByName(config.structureSheet);
+        if (!sheet) return null;
+        const range = sheet.getDataRange && sheet.getDataRange();
+        if (!range || typeof range.getValues !== 'function') return [];
+        return range.getValues();
+      } catch (err) {
+        logger && logger.error && logger.error('Erreur lors de la lecture de _STRUCTURE', err);
+        return null;
+      }
+    }
+
+    return {
+      getClassSheetsForSuffix,
+      getStructureSheetValues
+    };
+  }
+
+  function createService({
+    config = baseConfig,
+    domain = createDomain({ config }),
+    dataAccess = createDataAccess(),
+    logger = baseLogger
+  } = {}) {
+    const suffixMap = new Map([
+      ['TEST', config.sheetSuffixes.test],
+      ['CACHE', config.sheetSuffixes.cache],
+      ['INT', config.sheetSuffixes.snapshot],
+      ['SNAPSHOT', config.sheetSuffixes.snapshot]
+    ]);
+
+    function resolveSuffix(mode) {
+      const normalized = toUpperValue(mode || '');
+      if (suffixMap.has(normalized)) {
+        return suffixMap.get(normalized);
+      }
+      if (normalized) {
+        logger && logger.warn && logger.warn(`Mode inconnu: ${mode}, utilisation de ${config.sheetSuffixes.test} par défaut`);
+      }
+      return config.sheetSuffixes.test;
+    }
+
+    function getElevesData() {
+      return getElevesDataForMode('TEST');
+    }
+
+    function getElevesDataForMode(mode) {
+      const suffix = resolveSuffix(mode);
+      logger && logger.log && logger.log(`📊 Chargement des données pour le mode: ${mode} (suffixe: ${suffix})`);
+
+      try {
+        const sheets = dataAccess.getClassSheetsForSuffix(suffix, { includeValues: true });
+        const classes = domain.buildClassesData(sheets, { suffix, logger });
+        const serialized = domain.sanitize(classes) || [];
+        logger && logger.log && logger.log(`✅ ${serialized.length} classes trouvées pour le mode ${mode}`);
+        return serialized;
+      } catch (error) {
+        logger && logger.error && logger.error('Erreur dans getElevesDataForMode', error);
+        return [];
+      }
+    }
+
+    function getStructureRules() {
+      try {
+        const values = dataAccess.getStructureSheetValues();
+        if (!values) {
+          logger && logger.warn && logger.warn('❌ Onglet _STRUCTURE absent');
+          return {};
+        }
+        const rules = domain.parseStructureRules(values);
+        const serialized = domain.sanitize(rules) || {};
+        logger && logger.log && logger.log('✅ rules (DEST-only) :', JSON.stringify(serialized, null, 2));
+        return serialized;
+      } catch (error) {
+        logger && logger.error && logger.error('💥 Erreur getStructureRules', error);
+        return {};
+      }
+    }
+
+    return {
+      getElevesData,
+      getElevesDataForMode,
+      getStructureRules,
+      resolveSuffix
+    };
+  }
+
+  const api = {
+    config: baseConfig,
+    utils: {
+      escapeRegExp,
+      toStringValue,
+      toUpperValue,
+      toNumberValue,
+      sanitize,
+      stripSuffix
+    },
+    createDomain,
+    createDataAccess,
+    createService
+  };
+
+  global.ElevesBackend = api;
+  return api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+const __elevesBackendLogger = (typeof console !== 'undefined' ? console : { log: () => {}, warn: () => {}, error: () => {} });
+const __elevesBackendDomain = ElevesBackend.createDomain({ config: ElevesBackend.config, logger: __elevesBackendLogger });
+const __elevesBackendDataAccess = ElevesBackend.createDataAccess({
+  SpreadsheetApp: typeof SpreadsheetApp !== 'undefined' ? SpreadsheetApp : null,
+  logger: __elevesBackendLogger,
+  config: ElevesBackend.config
+});
+const __elevesBackendService = ElevesBackend.createService({
+  config: ElevesBackend.config,
+  domain: __elevesBackendDomain,
+  dataAccess: __elevesBackendDataAccess,
+  logger: __elevesBackendLogger
+});
+
 /************************ getElevesData *********************************/
-/**
- * Fonction principale pour récupérer les données des élèves
- * Renvoie [{classe:"5°1",eleves:[{id,nom,…},…]}, …]
- */
 function getElevesData(){
-  return getElevesDataForMode('TEST');
+  return __elevesBackendService.getElevesData();
 }
 
 /************************ getElevesDataForMode *********************************/
-/**
- * Fonction pour récupérer les données des élèves selon le mode
- * @param {string} mode - Le mode ('TEST', 'CACHE', 'INT')
- * @returns {Array} Données formatées
- */
 function getElevesDataForMode(mode) {
-  try {
-    let suffix = 'TEST'; // Par défaut
-    
-    switch(mode) {
-      case 'TEST':
-        suffix = 'TEST';
-        break;
-      case 'CACHE':
-        suffix = 'CACHE';
-        break;
-      case 'INT':
-        suffix = 'INT';
-        break;
-      default:
-        suffix = 'TEST';
-        console.warn(`Mode inconnu: ${mode}, utilisation de TEST par défaut`);
-    }
-    
-    console.log(`📊 Chargement des données pour le mode: ${mode} (suffixe: ${suffix})`);
-    
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const result = [];
-
-    ss.getSheets().forEach(sh => {
-      const name = sh.getName();
-
-      // 1) doit finir par TEST / CACHE / INT
-      if(!_eleves_up(name).endsWith(_eleves_up(suffix))) return;
-
-      // ---------- NOUVEAU FILTRE DÉFINITIF ----------
-      // 2) on rejette tout onglet dont le nom commence par level_, grp_, groupe…
-      if (/^(?:level|grp|groupe|group|niv(?:eau)?)\b/i.test(name)) return;
-      // ----------------------------------------------
-
-      const data = sh.getDataRange().getValues();
-      if(data.length < 2) return;
-
-      const head = data[0].map(c => _eleves_up(c));
-      const col = {};
-      Object.keys(ELEVES_ALIAS).forEach(k => col[k] = _eleves_idx(head, ELEVES_ALIAS[k].map(_eleves_up)));
-      if(col.id === -1) return;
-
-      const classe = _eleves_s(name.replace(new RegExp(suffix + '$', 'i'), ''));
-      const eleves = [];
-
-      for(let r = 1; r < data.length; r++){
-        const row = data[r];
-        const idRaw = row[col.id];
-        if(idRaw === undefined || idRaw === "" || idRaw === null) continue;
-
-        // --- construction de l'élève ---
-const eleve = {
-  id      : _eleves_s(idRaw),
-  nom     : col.nom  !== -1 ? _eleves_s(row[col.nom])  : '',
-  prenom  : col.prenom !== -1 ? _eleves_s(row[col.prenom]) : '',
-  sexe    : col.sexe !== -1 ? _eleves_up(row[col.sexe]) : '',
-  lv2     : col.lv2  !== -1 ? _eleves_up(row[col.lv2])  : '',
-  /* ⬇️  ON NE TOUCHE PLUS À L'OPTION — jamais vidée */
-  opt     : col.opt  !== -1 ? _eleves_up(row[col.opt])  : '',
-  /* le reste inchangé */
-  disso   : col.disso !== -1 ? _eleves_up(row[col.disso]) : '',
-  asso    : col.asso  !== -1 ? _eleves_up(row[col.asso])  : '',
-  scores  : {
-    C : col.com  !== -1 ? _eleves_num(row[col.com])  : 0,
-    T : col.tra  !== -1 ? _eleves_num(row[col.tra])  : 0,
-    P : col.part !== -1 ? _eleves_num(row[col.part]) : 0,
-    A : col.abs  !== -1 ? _eleves_num(row[col.abs])  : 0
-  },
-  source   : col.source   !== -1 ? _eleves_s(row[col.source])   : '',
-  dispo    : col.dispo    !== -1 ? _eleves_up(row[col.dispo])   : '',
-  mobilite : col.mobilite !== -1 ? (_eleves_up(row[col.mobilite]) || 'LIBRE') : 'LIBRE'
-};
-
-        eleves.push(eleve);
-      }
-
-      if(eleves.length > 0) {
-        result.push({
-          classe: classe,
-          eleves: eleves
-        });
-      }
-    });
-
-    console.log(`✅ ${result.length} classes trouvées pour le mode ${mode}`);
-    return _eleves_sanitizeForSerialization(result);
-    
-  } catch (e) {
-    console.error('Erreur dans getElevesDataForMode:', e);
-    return [];
-  }
+  return __elevesBackendService.getElevesDataForMode(mode);
 }
 
 /******************** getStructureRules (DEST-ONLY) ********************/
-/**
- * Ne lit QUE la colonne « CLASSE_DEST ».
- * – Col. B  = CLASSE_DEST     (obligatoire)
- * – Col. C  = EFFECTIF        (facultative, défaut 28)
- * – Col. D  = OPTIONS         (facultative : "ITA=12, ESP=0")
- *
- * ➜ Renvoie un objet n'incluant **aucune** classe origine :
- * {
- *   "5°1": { capacity: 28, quotas:{ LLCA:8 } },
- *   "5°3": { capacity: 28, quotas:{ ITA:12 } },
- *   …
- * }
- */
 function getStructureRules() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sh = ss.getSheetByName(ELEVES_MODULE_CONFIG.STRUCTURE_SHEET);
-    if (!sh) {
-      console.log('❌ Onglet _STRUCTURE absent'); 
-      return {};
-    }
-
-    const raw = sh.getDataRange().getValues();
-    if (raw.length < 2) return {};
-
-    /* ---------- repérage des colonnes ---------- */
-    const head = raw[0].map(h => String(h).toUpperCase().trim());
-    const colDest    = head.findIndex(h => h.includes('DEST'));
-    const colEff     = head.findIndex(h => h.includes('EFFECTIF'));
-    const colOptions = head.findIndex(h => h.includes('OPTION'));
-
-    if (colDest === -1) {
-      console.log('❌ Pas de colonne CLASSE_DEST');
-      return {};
-    }
-
-    /* ---------- constitution de l'objet rules ---------- */
-    const rules = {};
-
-    for (let r = 1; r < raw.length; r++) {
-      const dest = ('' + raw[r][colDest]).trim();
-      if (!dest) continue;                       // ligne vide ou commentée
-
-      /* ---- capacité ---- */
-      let capacity = 28;
-      if (colEff !== -1 && raw[r][colEff] !== '' && raw[r][colEff] != null) {
-        capacity = parseInt(raw[r][colEff], 10) || 28;
-      }
-
-      /* ---- quotas ---- */
-      const quotas = {};
-      if (colOptions !== -1 && raw[r][colOptions] !== '' && raw[r][colOptions] != null) {
-        ('' + raw[r][colOptions])
-          .replace(/^'/, '')      // retire éventuelle apostrophe force-texte
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean)
-          .forEach(pair => {
-            const [opt, val = '0'] = pair.split('=').map(x => x.trim().toUpperCase());
-            if (opt) quotas[opt] = parseInt(val, 10) || 0;   // 0 = interdit
-          });
-      }
-
-      rules[dest] = { capacity, quotas };
-    }
-
-    console.log('✅ rules (DEST-only) :', JSON.stringify(rules, null, 2));
-    return _eleves_sanitizeForSerialization(rules);   // garde l'API existante
-
-  } catch (err) {
-    console.error('💥 Erreur getStructureRules :', err);
-    return {};
-  }
+  return __elevesBackendService.getStructureRules();
 }
 
 /******************** updateStructureRules ***********************/
@@ -328,19 +533,14 @@ function updateStructureRules(newRules) {
  */
 function getAvailableClasses() {
   try {
-    const testSuf = _eleves_up(ELEVES_MODULE_CONFIG.TEST_SUFFIX);
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const classes = [];
-    
-    ss.getSheets().forEach(sh => {
-      const name = sh.getName();
-      if(_eleves_up(name).endsWith(testSuf)) {
-        const classe = _eleves_s(name.replace(new RegExp(testSuf + '$', 'i'), ''));
-        if(classe) classes.push(classe);
-      }
-    });
-    
-    return _eleves_sanitizeForSerialization(classes.sort());
+    const suffix = ElevesBackend.config.sheetSuffixes.test;
+    const sheets = __elevesBackendDataAccess.getClassSheetsForSuffix(suffix, { includeValues: false });
+    const classes = (sheets || [])
+      .map(sheet => __elevesBackendDomain.stripSuffix(sheet.name, suffix))
+      .filter(Boolean)
+      .sort();
+
+    return _eleves_sanitizeForSerialization(classes);
   } catch (e) {
     console.error('Erreur dans getAvailableClasses:', e);
     return [];
@@ -354,10 +554,7 @@ function buildStudentIndex_() {
 
   const ss      = SpreadsheetApp.getActiveSpreadsheet();
   const sheets  = ss.getSheets();
-
-  // mêmes alias que dans ELEVES_ALIAS
-  const ID_ALIASES = ['ID_ELEVE','ID','UID','IDENTIFIANT','NUM ELÈVE']
-                     .map(s => s.toUpperCase());
+  const domain  = __elevesBackendDomain;
 
   const index  = {};       //  rows[id] = [ …ligne complète… ]
   let   header = null;     //  1er header rencontré (réutilisé pour les snapshots)
@@ -368,17 +565,15 @@ function buildStudentIndex_() {
     const data = sh.getDataRange().getValues();
     if (data.length < 2)       return;             // feuille vide
 
-    const head = data[0].map(h => String(h).trim());
-    // position de la colonne ID / ID_ELEVE / UID…
-    const colId = head.findIndex(h =>
-                    ID_ALIASES.includes(h.toUpperCase()));
+    const columns = domain.buildColumnIndex(data[0]);
+    const colId   = columns.id;
     if (colId === -1)          return;             // pas de colonne ID, on passe
 
-    if (!header) header = head;                    // on retient le 1er header
+    if (!header) header = data[0];                 // on retient le 1er header
 
     // on indexe toutes les lignes
     for (let r = 1; r < data.length; r++) {
-      const id = String(data[r][colId]).trim();
+      const id = _eleves_s(data[r][colId]);
       if (id) index[id] = data[r];
     }
   });
@@ -547,67 +742,31 @@ function getCacheInfo() {
 function getEleveById_(id) {
 
   const ss     = SpreadsheetApp.getActiveSpreadsheet();
-  const idStr  = String(id).trim();
+  const idStr  = _eleves_s(id);
+
+  if (!idStr) return null;
+
+  const domain = __elevesBackendDomain;
 
   // Parcourt chaque feuille (sauf les snapshot INT)
   for (const sh of ss.getSheets()) {
     const name = sh.getName();
-    if (/INT$/.test(name)) continue;      // on saute les snapshots
+    if (/INT$/i.test(name)) continue;      // on saute les snapshots
 
     const data = sh.getDataRange().getValues();
-    if (data.length === 0) continue;
+    if (!data.length) continue;
 
-    const header = data[0].map(h => String(h).trim().toUpperCase());
-
-    const colCache = new Map();
-    const col = (field) => {
-      const key = String(field || '').toLowerCase();
-      if (colCache.has(key)) return colCache.get(key);
-
-      const aliases = ELEVES_ALIAS[key];
-      if (!aliases) {
-        colCache.set(key, -1);
-        return -1;
-      }
-
-      const idx = _eleves_idx(header, aliases.map(_eleves_up));
-      colCache.set(key, idx);
-      return idx;
-    };
-
-    const colId = col('id');
+    const columns = domain.buildColumnIndex(data[0]);
+    const colId = columns.id;
     if (colId === -1) continue;                       // pas de colonne ID → on passe
 
     // Recherche de l'ID dans cette feuille
     for (let r = 1; r < data.length; r++) {
-      if (String(data[r][colId]).trim() === idStr) {
-
-        const valueAt = (field) => {
-          const idx = col(field);
-          return idx !== -1 ? data[r][idx] : undefined;
-        };
-
-        return {
-          id       : idStr,
-          nom      : valueAt('nom'),
-          prenom   : valueAt('prenom'),
-          sexe     : valueAt('sexe'),
-          lv2      : valueAt('lv2'),
-          opt      : valueAt('opt'),
-          scores   : {
-            C : valueAt('com'),
-            T : valueAt('tra'),
-            P : valueAt('part'),
-            A : valueAt('abs')
-          },
-          mobilite : (() => {
-            const direct = valueAt('mobilite');
-            return direct !== undefined ? direct : valueAt('dispo');
-          })(),
-          asso     : valueAt('asso'),
-          disso    : valueAt('disso'),
-          source   : valueAt('source')
-        };
+      if (_eleves_s(data[r][colId]) === idStr) {
+        const student = domain.createStudent(data[r], columns);
+        if (student) {
+          return domain.sanitize(student);
+        }
       }
     }
   }

@@ -166,91 +166,12 @@ function normaliserSexeSimple(raw) {
 /**
  * Patch de V2_Ameliore_PreparerDonnees pour utiliser la version avec SEXE
  */
-function V2_Ameliore_PreparerDonnees_AvecSEXE(config) {
-  Logger.log("V2_Ameliore_PreparerDonnees_AvecSEXE: Utilisation du chargeur avec SEXE");
-  
-  const niveauActif = determinerNiveauActifCache();
-  const structureResult = chargerStructureEtOptions(niveauActif, config);
-  if (!structureResult.success) throw new Error("Échec chargement structure");
-  
-  const optionPools = buildOptionPools(structureResult.structure, config);
-  Logger.log("Option pools: " + JSON.stringify(optionPools));
-  
-  // *** UTILISER LA VERSION PATCHÉE ***
-  const chargeResult = chargerElevesEtClasses_AvecSEXE(config, "MOBILITE");
-  if (!chargeResult.success) throw new Error("Échec chargement élèves");
-  
-  const { clean: elevesValides } = sanitizeStudents(chargeResult.students);
-  classifierEleves(elevesValides, ['COM', 'TRA', 'PART', 'ABS']);
-  
-  // Organisation par classe
-  const classesState = {};
-  const effectifsClasses = {};
-  
-  elevesValides.forEach(eleve => {
-    const classe = eleve.CLASSE;
-    if (!classe) return;
-    
-    if (!classesState[classe]) classesState[classe] = [];
-    classesState[classe].push(eleve);
-  });
-  
-  Object.keys(classesState).forEach(cls => {
-    effectifsClasses[cls] = classesState[cls].length;
-    
-    // Log rapide de la parité
-    const nbF = classesState[cls].filter(e => e.SEXE === 'F').length;
-    const nbM = classesState[cls].filter(e => e.SEXE === 'M').length;
-    Logger.log(`${cls}: ${nbF}F/${nbM}M`);
-  });
-  
-  // Reste du code identique...
-  const distributionGlobale = V2_Ameliore_CalculerDistributionGlobale(elevesValides, ['COM', 'TRA', 'PART']);
-  const totalEleves = elevesValides.length;
-  const nbClasses = Object.keys(classesState).length;
-  
-  const ciblesParClasse = {};
-  Object.keys(classesState).forEach(classe => {
-    const effectifClasse = classesState[classe].length;
-    ciblesParClasse[classe] = {};
-    
-    ['COM', 'TRA', 'PART'].forEach(critere => {
-      ciblesParClasse[classe][critere] = {};
-      ['1', '2', '3', '4'].forEach(score => {
-        const totalScore = distributionGlobale[critere][score];
-        const cible = Math.round((effectifClasse / totalEleves) * totalScore);
-        ciblesParClasse[classe][critere][score] = cible;
-      });
-    });
-  });
-  
-  const dataContext = {
-    config: config,
-    elevesValides: elevesValides,
-    classesState: classesState,
-    effectifsClasses: effectifsClasses,
-    optionPools: optionPools,
-    structureData: structureResult.structure,
-    colIndexes: chargeResult.colIndexes,
-    dissocMap: buildDissocCountMap(classesState),
-    distributionGlobale: distributionGlobale,
-    ciblesParClasse: ciblesParClasse,
-    totalEleves: totalEleves,
-    nbClasses: nbClasses
-  };
-  
-  dataContext.totalEleves = elevesValides.length;
-  dataContext.classeCaches = {};
-  Object.keys(dataContext.classesState).forEach(cls => {
-    dataContext.classeCaches[cls] = {
-      dist: { COM: {1:0,2:0,3:0,4:0}, TRA: {1:0,2:0,3:0,4:0}, PART: {1:0,2:0,3:0,4:0} },
-      parite: { F: 0, M: 0, total: 0 },
-      score: 0
-    };
-  });
-  dataContext.scoreGlobal = 0;
-  
-  return dataContext;
+function V2_Ameliore_PreparerDonnees_AvecSEXE(config, criteresUI) {
+  if (!__nirvanaDataService || typeof __nirvanaDataService.prepareData !== 'function') {
+    throw new Error('NirvanaDataBackend indisponible pour préparer les données (patch SEXE)');
+  }
+
+  return __nirvanaDataService.prepareData({ config, criteresUI });
 }
 
 /**
@@ -557,8 +478,8 @@ function chargerElevesEtClasses(config, mobiliteField) {
 }
 
 // ② Préparation des données V2 : on remplace la version legacy
-function V2_Ameliore_PreparerDonnees(config) {
-  return V2_Ameliore_PreparerDonnees_AvecSEXE(config);
+function V2_Ameliore_PreparerDonnees(config, criteresUI) {
+  return V2_Ameliore_PreparerDonnees_AvecSEXE(config, criteresUI);
 }
 
 // ③ Parité agressive : alias pour rester compatible avec les menus
