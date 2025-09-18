@@ -30,6 +30,15 @@ La fonction `lancerCombinaisonNirvanaOptimale` se contente ainsi d’invoquer le
 
 Les fonctions `V2_Ameliore_PreparerDonnees*` deviennent de simples wrappers vers ce service, ce qui garantit un comportement homogène entre Apps Script et les tests Node.
 
+## Architecture "Scores phase engine"
+
+`Nirvana_Combined_Orchestrator.js` embarque désormais `ScoresEquilibrageEngine`, un noyau léger dédié à la phase spécialisée « scores » :
+
+* **Domain (`ScoresEquilibrageEngine.createDomain`)** – séquence l’exécution de la stratégie spécialisée et du fallback Nirvana V2, capitalise les tentatives dans un historique et homogénéise les métriques (`nbOperations`, stratégie retenue) pour l’orchestrateur.
+* **Service (`ScoresEquilibrageEngine.createService`)** – prépare la configuration agressive (`COLONNES_SCORES_ACTIVES`, `MAX_ITERATIONS_SCORES`), injecte les dépendances Apps Script (`executerEquilibrageScoresPersonnalise`, `V2_Ameliore_OptimisationEngine`) et renvoie un rapport testable hors Google Sheets.
+
+La fonction `executerPhaseScoresSpecialisee` délègue ainsi l’intégralité de la logique à ce moteur, ce qui simplifie l’instrumentation et le pilotage des différents scénarios d’équilibrage.
+
 ## Tests
 
 Les tests unitaires Node utilisent des loaders sandbox (`tests/helpers/loadBackendSandbox.js`, `tests/helpers/loadNirvanaSandbox.js`) pour exécuter `BackendV2.js` et `Nirvana_Combined_Orchestrator.js` hors Apps Script :
@@ -42,4 +51,5 @@ La suite couvre désormais :
 
 * le backend élèves (alias d’ID, sélection des suffixes) ;
 * le data backend Nirvana (construction du `dataContext`, gestion des erreurs de classification) ;
-* l’orchestrateur combiné (agrégation des phases, verrouillage, toasts/alertes).
+* l’orchestrateur combiné (agrégation des phases, verrouillage, toasts/alertes) ;
+* le moteur de phase scores (enchaînement stratégie spécialisée/fallback, préparation de configuration).

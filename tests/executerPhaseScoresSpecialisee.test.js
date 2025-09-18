@@ -30,7 +30,7 @@ test('utilise le fallback V2 quand la stratégie spécialisée échoue', () => {
   sandbox.executerEquilibrageScoresPersonnalise = () => ({ success: false });
   sandbox.V2_Ameliore_OptimisationEngine = (sheet, dataContext, config) => {
     fallbackInvocations += 1;
-    assert.deepStrictEqual(config.COLONNES_SCORES_ACTIVES, scenarios);
+    assert.deepStrictEqual(Array.from(config.COLONNES_SCORES_ACTIVES), scenarios);
     return {
       success: true,
       nbSwapsAppliques: 4,

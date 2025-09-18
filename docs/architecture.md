@@ -78,3 +78,23 @@ La refonte de l’orchestrateur combine les mêmes principes de séparation des 
 
 Ainsi, la logique métier (phases V2 + Parité) peut être instrumentée, testée et migrée vers d’autres environnements sans dépendre du runtime Apps Script.
 
+# Architecture interne – ScoresEquilibrageEngine
+
+La phase spécialisée « scores » dispose désormais d’un noyau dédié embarqué dans `Nirvana_Combined_Orchestrator.js`.
+
+## 1. Domaine (`ScoresEquilibrageEngine.createDomain`)
+
+* orchestre la séquence « stratégie spécialisée → fallback Nirvana V2 » ;
+* normalise les sorties (`nbOperations`, stratégie retenue, cycles) et historise chaque tentative (`history`) pour faciliter l’analyse ;
+* gère les erreurs en isolant les exceptions et en garantissant une réponse sérialisable pour l’orchestrateur.
+
+## 2. Service (`ScoresEquilibrageEngine.createService`)
+
+* prépare la configuration spécifique aux scores (colonnes actives, mode agressif, itérations maximales) sans muter l’entrée ;
+* injecte les dépendances Apps Script (`executerEquilibrageScoresPersonnalise`, `V2_Ameliore_OptimisationEngine`) et les expose sous forme de callbacks testables ;
+* enrichit le rapport final (config utilisée, scénarios) pour simplifier le débogage.
+
+## 3. Tests
+
+* `tests/scoresPhaseEngine.test.js` vérifie l’ordre des tentatives, la préparation de configuration et la remontée des métriques clés hors Apps Script.
+

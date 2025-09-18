@@ -381,6 +381,239 @@ const NirvanaEngine = (function (global) {
   return api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
+const ScoresEquilibrageEngine = (function (global) {
+  const noop = () => {};
+  const defaultLogger = (global.Logger && {
+    log: (...args) => global.Logger.log(...args),
+    warn: (...args) => (global.Logger.warn ? global.Logger.warn(...args) : noop()),
+    error: (...args) =>
+      global.Logger.error ? global.Logger.error(...args) : global.Logger.log(...args)
+  }) ||
+    global.console || { log: noop, warn: noop, error: noop };
+
+  function toNonNegativeInt(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      return 0;
+    }
+    return Math.max(0, Math.trunc(num));
+  }
+
+  function toNumberOrNull(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  function buildDefaultConfig(config = {}, scenarios = []) {
+    const base = typeof config === 'object' && config !== null ? { ...config } : {};
+    base.COLONNES_SCORES_ACTIVES = Array.isArray(scenarios) ? [...scenarios] : [];
+    base.MODE_AGRESSIF = true;
+    base.MAX_ITERATIONS_SCORES = 50;
+    return base;
+  }
+
+  function createDomain({ logger = defaultLogger } = {}) {
+    const log = {
+      error: typeof logger.error === 'function' ? logger.error.bind(logger) : noop
+    };
+
+    function run({ scenarios = [], runCustom, runFallback } = {}) {
+      const scenarioList = Array.isArray(scenarios) ? scenarios : [];
+      const history = [];
+
+      if (scenarioList.length === 0) {
+        return {
+          success: false,
+          nbOperations: 0,
+          details: {
+            strategieUtilisee: 'Aucune',
+            message: 'Aucun scénario scores fourni',
+            history
+          }
+        };
+      }
+
+      const specialised = attempt('specialisee', runCustom);
+      if (specialised && specialised.success) {
+        return finalize(specialised);
+      }
+
+      const fallback = attempt('fallback', runFallback);
+      if (fallback && fallback.success) {
+        return finalize(fallback);
+      }
+
+      return {
+        success: false,
+        nbOperations: 0,
+        details: {
+          strategieUtilisee: 'Aucune',
+          history
+        }
+      };
+
+      function attempt(type, fn) {
+        if (typeof fn !== 'function') {
+          return null;
+        }
+        try {
+          const result = fn() || { success: false };
+          history.push({
+            type,
+            success: !!result.success,
+            details: result.details || null
+          });
+          return result;
+        } catch (err) {
+          const message = err && err.message ? err.message : String(err);
+          history.push({ type, success: false, error: message });
+          log.error(`ScoresEquilibrageEngine: erreur ${type}`, err);
+          return { success: false, nbOperations: 0, details: { error: message } };
+        }
+      }
+
+      function finalize(result) {
+        const operations = toNonNegativeInt(result.nbOperations);
+        const details = {
+          ...(result.details || {}),
+          history
+        };
+        if (!details.strategieUtilisee) {
+          const last = history[history.length - 1];
+          details.strategieUtilisee = last && last.type === 'specialisee' ? 'Spécialisée' : 'Fallback';
+        }
+        return {
+          success: true,
+          nbOperations: operations,
+          details
+        };
+      }
+    }
+
+    return { run };
+  }
+
+  function normalizeCustomResult(raw, scenarios = []) {
+    const label = `Spécialisée ${Array.isArray(scenarios) && scenarios.length > 0 ? scenarios.join('+') : 'Scores'}`;
+    if (!raw || raw.success !== true) {
+      return {
+        success: false,
+        nbOperations: 0,
+        details: {
+          strategieUtilisee: label
+        }
+      };
+    }
+
+    const iterationsValue = raw.nbIterations !== undefined ? raw.nbIterations : raw.iterations;
+    const iterations = iterationsValue === undefined ? null : toNonNegativeInt(iterationsValue);
+
+    return {
+      success: true,
+      nbOperations: toNonNegativeInt(
+        raw.totalEchanges !== undefined
+          ? raw.totalEchanges
+          : raw.nbOperations !== undefined
+            ? raw.nbOperations
+            : raw.nbSwapsAppliques !== undefined
+              ? raw.nbSwapsAppliques
+              : 0
+      ),
+      details: {
+        strategieUtilisee: raw.strategieUtilisee || label,
+        scoreInitial: toNumberOrNull(raw.scoreInitial),
+        scoreFinal: toNumberOrNull(raw.scoreFinal),
+        iterationsEffectuees: iterations
+      }
+    };
+  }
+
+  function normalizeFallbackResult(raw) {
+    const label = 'V2 Adaptée Scores';
+    if (!raw || raw.success !== true) {
+      return {
+        success: false,
+        nbOperations: 0,
+        details: {
+          strategieUtilisee: label
+        }
+      };
+    }
+
+    const cycles = raw.cyclesGeneraux !== undefined ? toNonNegativeInt(raw.cyclesGeneraux) : null;
+
+    return {
+      success: true,
+      nbOperations: toNonNegativeInt(
+        raw.nbSwapsAppliques !== undefined
+          ? raw.nbSwapsAppliques
+          : raw.nbOperations !== undefined
+            ? raw.nbOperations
+            : raw.totalEchanges !== undefined
+              ? raw.totalEchanges
+              : 0
+      ),
+      details: {
+        strategieUtilisee: label,
+        cyclesGeneraux: cycles
+      }
+    };
+  }
+
+  function createService({
+    domain = createDomain(),
+    logger = defaultLogger,
+    buildConfig = buildDefaultConfig,
+    runCustomPhase,
+    runFallbackPhase
+  } = {}) {
+    return {
+      runPhase({ dataContext, config, scenarios } = {}) {
+        const scenarioList = Array.isArray(scenarios) ? [...scenarios] : [];
+        const specialisedConfig = buildConfig(config, scenarioList);
+        const result = domain.run({
+          scenarios: scenarioList,
+          runCustom: typeof runCustomPhase === 'function'
+            ? () => runCustomPhase({
+                dataContext,
+                config: specialisedConfig,
+                scenarios: scenarioList
+              })
+            : undefined,
+          runFallback: typeof runFallbackPhase === 'function'
+            ? () => runFallbackPhase({
+                dataContext,
+                config: specialisedConfig,
+                scenarios: scenarioList
+              })
+            : undefined
+        });
+
+        if (result && result.details) {
+          result.details.config = specialisedConfig;
+          result.details.scenarios = scenarioList;
+        }
+
+        return result;
+      }
+    };
+  }
+
+  const api = {
+    createDomain,
+    createService,
+    normalizeCustomResult,
+    normalizeFallbackResult,
+    buildDefaultConfig
+  };
+
+  global.ScoresEquilibrageEngine = api;
+  return api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
 const __nirvanaEngineLogger =
   (typeof Logger !== 'undefined' && Logger) ||
   (typeof console !== 'undefined' ? console : { log: () => {}, warn: () => {}, error: () => {} });
@@ -940,54 +1173,79 @@ function executerVarianteScoresAvecOrchestrateurUltime(scenarios, config) {
  * Phase scores spécialisée pour la variante B
  */
 function executerPhaseScoresSpecialisee(dataContext, config, scenarios) {
-  const resultats = { success: false, nbOperations: 0, details: {} };
-  
+  const global = typeof globalThis !== 'undefined' ? globalThis : this;
+  if (!global.__scoresPhaseService) {
+    const logger =
+      (typeof Logger !== 'undefined' && Logger) ||
+      (typeof console !== 'undefined' ? console : { log: () => {}, warn: () => {}, error: () => {} });
+
+    global.__scoresPhaseService = ScoresEquilibrageEngine.createService({
+      logger,
+      runCustomPhase: ({ config: specialisedConfig, scenarios: scenarioList }) => {
+        if (typeof executerEquilibrageScoresPersonnalise !== 'function') {
+          return {
+            success: false,
+            nbOperations: 0,
+            details: {
+              strategieUtilisee: `Spécialisée ${
+                scenarioList.length > 0 ? scenarioList.join('+') : 'Scores'
+              }`,
+              message: 'Module spécialisé indisponible'
+            }
+          };
+        }
+        const resultatScores = executerEquilibrageScoresPersonnalise(
+          scenarioList,
+          specialisedConfig
+        );
+        return ScoresEquilibrageEngine.normalizeCustomResult(resultatScores, scenarioList);
+      },
+      runFallbackPhase: ({ dataContext: ctx, config: specialisedConfig }) => {
+        if (typeof V2_Ameliore_OptimisationEngine !== 'function') {
+          return {
+            success: false,
+            nbOperations: 0,
+            details: {
+              strategieUtilisee: 'V2 Adaptée Scores',
+              message: 'Moteur V2 indisponible'
+            }
+          };
+        }
+        const resultatV2 = V2_Ameliore_OptimisationEngine(null, ctx, specialisedConfig);
+        return ScoresEquilibrageEngine.normalizeFallbackResult(resultatV2);
+      }
+    });
+  }
+
   try {
-    // Configuration adaptée aux scénarios
-    const configSpecialisee = {
-      ...config,
-      // Forcer l'utilisation des colonnes sélectionnées
-      COLONNES_SCORES_ACTIVES: scenarios,
-      MODE_AGRESSIF: true,
-      MAX_ITERATIONS_SCORES: 50
+    const result = global.__scoresPhaseService.runPhase({
+      dataContext,
+      config,
+      scenarios
+    });
+
+    if (result && typeof result === 'object') {
+      return {
+        success: !!result.success,
+        nbOperations: Number.isFinite(result.nbOperations) ? result.nbOperations : 0,
+        details: result.details || {}
+      };
+    }
+
+    return { success: false, nbOperations: 0, details: { strategieUtilisee: 'Aucune' } };
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    if (typeof Logger !== 'undefined' && Logger && typeof Logger.log === 'function') {
+      Logger.log(`❌ Erreur phase scores spécialisée: ${message}`);
+    }
+    return {
+      success: false,
+      nbOperations: 0,
+      details: {
+        strategieUtilisee: 'Aucune',
+        message
+      }
     };
-    
-    // Essayer le module NIRVANA_SCORES_EQUILIBRAGE en premier
-    if (typeof lancerEquilibrageScores_UI === 'function') {
-      // Adaptation pour les scénarios spécifiques
-      const resultatScores = executerEquilibrageScoresPersonnalise(scenarios, configSpecialisee);
-      
-      if (resultatScores && resultatScores.success) {
-        resultats.success = true;
-        resultats.nbOperations = resultatScores.totalEchanges || 0;
-        resultats.details = {
-          strategieUtilisee: `Spécialisée ${scenarios.join('+')}`,
-          scoreInitial: resultatScores.scoreInitial || 0,
-          scoreFinal: resultatScores.scoreFinal || 0,
-          iterationsEffectuees: resultatScores.nbIterations || 0
-        };
-      }
-    }
-    // Fallback sur Nirvana V2 avec configuration scores
-    if (!resultats.success && typeof V2_Ameliore_OptimisationEngine === 'function') {
-      const resultatV2 = V2_Ameliore_OptimisationEngine(null, dataContext, configSpecialisee);
-      
-      if (resultatV2 && resultatV2.success) {
-        resultats.success = true;
-        resultats.nbOperations = resultatV2.nbSwapsAppliques || 0;
-        resultats.details = {
-          strategieUtilisee: "V2 Adaptée Scores",
-          cyclesGeneraux: resultatV2.cyclesGeneraux || 0
-        };
-      }
-    }
-    
-    return resultats;
-    
-  } catch (e) {
-    Logger.log(`❌ Erreur phase scores spécialisée: ${e.message}`);
-    resultats.erreur = e.message;
-    return resultats;
   }
 }
 
