@@ -41,9 +41,59 @@ const _eleves_num = v => {
   return Number.isFinite(n) ? n : 0;
 };
 
+function _eleves_normalizeHeaderValue(value) {
+  return _eleves_up(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function _eleves_splitTokens(value) {
+  return value ? value.split('_').filter(Boolean) : [];
+}
+
+function _eleves_matchesAlias(headerValue, aliasValue) {
+  const normalizedHeader = _eleves_normalizeHeaderValue(headerValue);
+  const normalizedAlias = _eleves_normalizeHeaderValue(aliasValue);
+
+  if (!normalizedHeader || !normalizedAlias) return false;
+  if (normalizedHeader === normalizedAlias) return true;
+
+  const headerTokens = _eleves_splitTokens(normalizedHeader);
+  const aliasTokens = _eleves_splitTokens(normalizedAlias);
+  if (!headerTokens.length || !aliasTokens.length) return false;
+
+  // Protect short aliases such as "ID" from matching wider headers like "ID_PARENT"
+  if (aliasTokens.length === 1 && aliasTokens[0].length <= 2) {
+    return headerTokens.length === 1 && headerTokens[0] === aliasTokens[0];
+  }
+
+  if (aliasTokens.length === 1) {
+    return headerTokens[0] === aliasTokens[0];
+  }
+
+  if (aliasTokens.length <= headerTokens.length) {
+    for (let start = 0; start <= headerTokens.length - aliasTokens.length; start++) {
+      let match = true;
+      for (let offset = 0; offset < aliasTokens.length; offset++) {
+        if (headerTokens[start + offset] !== aliasTokens[offset]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+  }
+
+  return false;
+}
+
 function _eleves_idx(head, aliases){
-  for(let i=0;i<head.length;i++)
-    if(aliases.some(a=>head[i].includes(a))) return i;
+  for(let i=0;i<head.length;i++){
+    const cell = head[i];
+    if(aliases.some(alias => _eleves_matchesAlias(cell, alias))) return i;
+  }
   return -1;
 }
 
